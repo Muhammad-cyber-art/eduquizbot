@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies (needed for PyMuPDF and psycopg2 if not binary)
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY eduquiz_bot/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY eduquiz_bot/ ./
+
+# Run via module to execute both bot and FastAPI
+CMD ["python", "-m", "app.main"]
