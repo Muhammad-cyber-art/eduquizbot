@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Redis (FSM storage & caching)
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    WEBHOOK_URL: str | None = None
+    WEBHOOK_PATH: str = "/api/webhook"
+
     # App
     LANG_DEFAULT: str = "uz"
     LOG_LEVEL: str = "INFO"

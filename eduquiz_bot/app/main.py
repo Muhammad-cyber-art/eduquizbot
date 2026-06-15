@@ -62,6 +62,19 @@ async def main() -> None:
     await init_db()
     logger.info("Database initialized.")
 
+    # Set default WebApp menu button on startup
+    try:
+        from aiogram.types import MenuButtonWebApp, WebAppInfo
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="Natijalarim",
+                web_app=WebAppInfo(url=f"{settings.WEB_URL}/webapp/student")
+            )
+        )
+        logger.info("Default WebApp menu button configured successfully.")
+    except Exception as e:
+        logger.error("Failed to set default menu button on startup: %s", e)
+
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
@@ -74,17 +87,33 @@ async def main() -> None:
     timer_task = asyncio.create_task(run_timer_loop(interval=30))
     web_task = asyncio.create_task(run_web_server())
     
+    # Store bot and dp in FastAPI app state for webhook routing
+    web_app.state.bot = bot
+    web_app.state.dp = dp
+
     logger.info(f"Admin panel available at http://localhost:{settings.WEB_PORT}/api/docs")
 
     try:
-        logger.info("Polling started.")
-        # Delete webhook and drop backlogged updates to avoid start-up overload
-        await bot.delete_webhook(drop_pending_updates=True)
-        # Run both bot and web server concurrently
-        await asyncio.gather(
-            dp.start_polling(bot),
-            web_task,
-        )
+        if settings.WEBHOOK_URL:
+            # --- WEBHOOK MODE ---
+            webhook_url = f"{settings.WEBHOOK_URL}{settings.WEBHOOK_PATH}"
+            logger.info(f"Webhook mode enabled. Setting webhook URL: {webhook_url}")
+            secret_token = settings.BOT_TOKEN.replace(":", "")[:32]
+            await bot.set_webhook(url=webhook_url, drop_pending_updates=True, secret_token=secret_token)
+            
+            # Just wait for the web server to finish (it will handle webhook POSTs)
+            await web_task
+        else:
+            # --- POLLING MODE ---
+            logger.info("Polling mode enabled. Deleting webhook.")
+            await bot.delete_webhook(drop_pending_updates=True)
+            
+            logger.info("Polling started.")
+            # Run both bot polling and web server concurrently
+            await asyncio.gather(
+                dp.start_polling(bot),
+                web_task,
+            )
     except asyncio.CancelledError:
         pass
     finally:

@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 
 from app.db.models import AccessRequest, Attempt, TestStatus, UserRole, User, Test
 from app.db.session import async_session
+from app.utils.menu import set_user_menu_button
 from app.keyboards.teacher import (
     answers_file_prompt_kb,
     confirm_review_kb,
@@ -110,6 +111,8 @@ async def teacher_pin(message: Message, state: FSMContext):
                 session.add(user)
             await session.commit()
 
+            await set_user_menu_button(message.bot, message.from_user.id, UserRole.TEACHER)
+
             await state.clear()
             await message.answer(
                 "✅ O'qituvchi paneliga xush kelibsiz!",
@@ -144,6 +147,8 @@ async def teacher_pin(message: Message, state: FSMContext):
                 )
                 session.add(user)
             await session.commit()
+
+            await set_user_menu_button(message.bot, message.from_user.id, UserRole.TEACHER)
 
             await state.clear()
             await message.answer(
@@ -198,6 +203,8 @@ async def teacher_contact_login(message: Message, state: FSMContext):
                 req.tg_user_id = message.from_user.id
                 await session.commit()
 
+                await set_user_menu_button(message.bot, message.from_user.id, UserRole.TEACHER)
+
                 await state.clear()
                 await message.answer(
                     "✅ Telefon raqamingiz orqali profilingiz faollashtirildi!\n"
@@ -243,6 +250,8 @@ async def teacher_contact_login(message: Message, state: FSMContext):
                     )
                     session.add(user)
                 await session.commit()
+
+                await set_user_menu_button(message.bot, message.from_user.id, UserRole.TEACHER)
 
                 await state.clear()
                 await message.answer(
@@ -1124,7 +1133,11 @@ async def cb_settings(call: CallbackQuery, state: FSMContext):
         return
 
     action = parts[1]  # time, attempts, shuffleq, shuffleo
-    test_id = int(parts[2])
+    if action == "settype":
+        test_id_str, type_val = parts[2].split("_", 1)
+        test_id = int(test_id_str)
+    else:
+        test_id = int(parts[2])
 
     if action == "time":
         await state.set_state(TeacherSG.settings_input)
@@ -1166,6 +1179,38 @@ async def cb_settings(call: CallbackQuery, state: FSMContext):
         if test:
             await call.message.edit_reply_markup(reply_markup=test_settings_kb(test))
         await call.answer("✅ O'zgartirildi")
+        return
+
+    if action == "type":
+        from app.keyboards.teacher import test_type_kb
+        await call.message.edit_text(
+            "🏷️ <b>Test turini tanlang:</b>\n\n"
+            "1️⃣ <b>Imtihon</b> — Natija faqat yakunlangandan keyin chiqadi\n"
+            "2️⃣ <b>Mashq</b> — To'g'ri/Noto'g'riligi va tushuntirish har bir javobda darhol chiqadi\n"
+            "3️⃣ <b>Yozma</b> — Variantlarsiz faqat yozma javob qabul qilinadi",
+            parse_mode="HTML",
+            reply_markup=test_type_kb(test_id),
+        )
+        await call.answer()
+        return
+
+    if action == "settype":
+        async with async_session() as session:
+            test = await get_test_full(session, test_id)
+            if test:
+                test.test_type = type_val
+                await session.commit()
+                test = await get_test_full(session, test_id)
+        if test:
+            try:
+                await call.message.edit_text(
+                    f"⚙️ <b>Sozlamalar</b> — {html.escape(test.title)}",
+                    parse_mode="HTML",
+                    reply_markup=test_settings_kb(test),
+                )
+            except Exception:
+                pass
+        await call.answer("✅ Test turi o'zgardi")
         return
 
     await call.answer()

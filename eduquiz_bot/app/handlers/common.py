@@ -13,6 +13,7 @@ from app.keyboards.common import language_kb, role_kb, teacher_auth_kb, contact_
 from app.keyboards.teacher import teacher_panel_kb
 from app.services.auth import get_or_create_user, get_user_by_tg_id
 from app.states import CommonSG, StudentSG, TeacherSG
+from app.utils.menu import set_user_menu_button
 
 router = Router(name="common")
 
@@ -26,6 +27,8 @@ async def cmd_start(message: Message, state: FSMContext):
     async with async_session() as session:
         user = await get_user_by_tg_id(session, message.from_user.id)
         if user:
+            # Set WebApp menu button
+            await set_user_menu_button(message.bot, message.from_user.id, user.role)
             if user.role == UserRole.TEACHER:
                 await message.answer(
                     "👨‍🏫 O'qituvchi paneli:",
@@ -126,6 +129,8 @@ async def cb_role(call: CallbackQuery, state: FSMContext):
                 role=UserRole.STUDENT,
                 lang_code=lang,
             )
+        # Set WebApp menu button for student
+        await set_user_menu_button(call.message.bot, call.from_user.id, UserRole.STUDENT)
         await state.set_state(StudentSG.enter_code)
         from app.keyboards.student import student_home_kb
         await call.message.edit_text("🔑 Test kodini kiriting:", reply_markup=student_home_kb())

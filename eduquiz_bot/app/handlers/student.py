@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, Message
 
 from datetime import datetime, timezone
 from sqlalchemy import select, func
-from app.db.models import TestStatus, UserRole, User, Attempt, Test
+from app.db.models import TestStatus, UserRole, User, Attempt, Test, Answer
 from app.db.session import async_session
 from app.keyboards.student import (
     finish_result_kb,
@@ -70,6 +70,9 @@ async def student_enter_code(message: Message, state: FSMContext):
             full_name=message.from_user.full_name,
             role=UserRole.STUDENT,
         )
+        # Set WebApp menu button for student
+        from app.utils.menu import set_user_menu_button
+        await set_user_menu_button(message.bot, message.from_user.id, UserRole.STUDENT)
 
         # Enforce student enrollment limits for this teacher
         # Check if student has already attempted any test from this teacher
@@ -95,9 +98,9 @@ async def student_enter_code(message: Message, state: FSMContext):
                 )
                 return
 
-        # Check attempt limit
+        # Check attempt limit (skip if practice mode)
         attempt_count = await count_attempts(session, test.id, user.id)
-        if attempt_count >= test.attempt_limit:
+        if getattr(test, "test_type", "standard") != "practice" and attempt_count >= test.attempt_limit:
             await message.answer(
                 f"⚠️ Siz bu testni {attempt_count} marta topshirgansiz. "
                 f"Limit: {test.attempt_limit}."
@@ -211,6 +214,10 @@ async def cb_select_question(call: CallbackQuery, state: FSMContext):
 
             attempt = await get_attempt_by_id(session, attempt_id)
             deadline = attempt.deadline_at if attempt else None
+            test = None
+            if attempt:
+                test = await session.get(Test, attempt.test_id)
+            test_type = getattr(test, "test_type", "standard") if test else "standard"
 
         q_total = len(question_ids)
         remaining = time_remaining(deadline) if deadline else None
@@ -219,7 +226,14 @@ async def cb_select_question(call: CallbackQuery, state: FSMContext):
             q_index + 1, q_total, q_data["text"],
             q_data["options"], remaining,
         )
-        kb = quiz_option_kb(q_data["id"], q_data["options"], attempt_id)
+
+        if test_type == "written":
+            text += "\n\n✍️ <b>Javobingizni xabar ko'rinishida yozib yuboring (variant harfini yoki qiymatini):</b>"
+            kb = quiz_option_kb(q_data["id"], [], attempt_id)
+            await state.set_state(StudentSG.waiting_written)
+            await state.update_data(current_question_id=question_id, current_attempt_id=attempt_id)
+        else:
+            kb = quiz_option_kb(q_data["id"], q_data["options"], attempt_id)
 
         if q_data["image_file_id"]:
             # Send photo with question text as caption
@@ -249,8 +263,10 @@ async def cb_select_question(call: CallbackQuery, state: FSMContext):
 
 # ── Back to grid ────────────────────────────────────────────
 @router.callback_query(StudentSG.in_quiz, F.data.startswith("sgrid_"))
+@router.callback_query(StudentSG.waiting_written, F.data.startswith("sgrid_"))
 async def cb_back_to_grid(call: CallbackQuery, state: FSMContext):
     """Return to the question grid."""
+    await state.set_state(StudentSG.in_quiz)
     data = await state.get_data()
     attempt_id = data["attempt_id"]
     question_ids = data["question_ids"]
@@ -277,7 +293,7 @@ async def cb_back_to_grid(call: CallbackQuery, state: FSMContext):
 # ── Answer question → back to grid ──────────────────────────
 @router.callback_query(StudentSG.in_quiz, F.data.startswith("ans_"))
 async def cb_answer(call: CallbackQuery, state: FSMContext):
-    """Student selected an answer — save it and return to grid."""
+    """Student selected an answer — save it and return to grid/show feedback."""
     parts = call.data.split("_")
     question_id = int(parts[1])
     selected_label = parts[2]
@@ -289,9 +305,6 @@ async def cb_answer(call: CallbackQuery, state: FSMContext):
 
     try:
         async with async_session() as session:
-            # Save answer
-            await save_answer(session, attempt_id, question_id, selected_label)
-
             # Check if time expired
             attempt = await get_attempt_by_id(session, attempt_id)
             if attempt and attempt.deadline_at:
@@ -312,17 +325,134 @@ async def cb_answer(call: CallbackQuery, state: FSMContext):
                     await call.answer("⏱️ Vaqt tugadi!")
                     return
 
+            # Save answer
+            await save_answer(session, attempt_id, question_id, selected_label)
+
+            # Fetch test to check test_type
+            test = await session.get(Test, attempt.test_id) if attempt else None
+            test_type = getattr(test, "test_type", "standard") if test else "standard"
+            
+            q = await get_question_with_options(session, question_id)
+
         # Mark this question as answered
         answered_ids.add(question_id)
         await state.update_data(answered_ids=list(answered_ids))
 
-        # Return to grid — handle both photo and text messages
+        # Practice Mode: instant feedback and wait 3 seconds before moving to next question
+        if test_type == "practice" and q:
+            correct_opt = None
+            selected_opt = None
+            for opt in q.options:
+                if opt.is_correct:
+                    correct_opt = opt
+                if opt.label == selected_label:
+                    selected_opt = opt
+
+            is_correct = (correct_opt and correct_opt.label == selected_label)
+            selected_text = selected_opt.text if selected_opt else ""
+            correct_label = correct_opt.label if correct_opt else ""
+            correct_text = correct_opt.text if correct_opt else ""
+
+            if is_correct:
+                feedback = (
+                    f"✅ <b>To'g'ri!</b>\n"
+                    f"Sizning javobingiz: <b>{selected_label}) {selected_text}</b>"
+                )
+            else:
+                feedback = (
+                    f"❌ <b>Noto'g'ri!</b>\n"
+                    f"Sizning javobingiz: <b>{selected_label}) {selected_text}</b>\n"
+                    f"To'g'ri javob: <b>{correct_label}) {correct_text}</b>"
+                )
+
+            if q.explanation:
+                feedback += f"\n\nℹ️ <b>Tushuntirish:</b>\n{q.explanation}"
+
+            # Format original question layout
+            q_index = question_ids.index(question_id)
+            q_total = len(question_ids)
+            remaining = time_remaining(attempt.deadline_at) if attempt and attempt.deadline_at else None
+            q_display = format_question(q_index + 1, q_total, q.text, [], remaining)
+
+            full_text = f"{feedback}\n\n{q_display}"
+
+            # Edit message to show feedback and remove buttons to prevent double-clicks
+            if call.message.photo:
+                if len(full_text) > 1024:
+                    full_text = full_text[:1020] + "..."
+                await call.message.edit_caption(
+                    caption=full_text,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+            else:
+                await call.message.edit_text(
+                    full_text,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+
+            await call.answer("To'g'ri!" if is_correct else "Noto'g'ri!")
+            
+            import asyncio
+            await asyncio.sleep(3)
+            
+            # Transition to next question if exists, otherwise back to grid
+            next_index = q_index + 1
+            if next_index < q_total:
+                next_q_id = question_ids[next_index]
+                async with async_session() as session:
+                    next_q = await get_question_with_options(session, next_q_id)
+                    if next_q:
+                        next_q_data = {
+                            "id": next_q.id,
+                            "text": next_q.text,
+                            "image_file_id": next_q.image_file_id,
+                            "options": [{"label": o.label, "text": o.text} for o in next_q.options],
+                        }
+                        
+                        next_text = format_question(
+                            next_index + 1, q_total, next_q_data["text"],
+                            next_q_data["options"], remaining,
+                        )
+                        next_kb = quiz_option_kb(next_q_data["id"], next_q_data["options"], attempt_id)
+                        
+                        try:
+                            await call.message.delete()
+                        except Exception:
+                            pass
+                            
+                        if next_q_data["image_file_id"]:
+                            await call.message.answer_photo(
+                                photo=next_q_data["image_file_id"],
+                                caption=next_text,
+                                parse_mode="HTML",
+                                reply_markup=next_kb,
+                            )
+                        else:
+                            await call.message.answer(
+                                next_text, parse_mode="HTML",
+                                reply_markup=next_kb,
+                            )
+            else:
+                # Return to grid after the last question
+                grid_text = "📝 <b>Savollar ro'yxati</b>\n\nSavolni tanlang va javob bering."
+                try:
+                    await call.message.delete()
+                except Exception:
+                    pass
+                await call.message.answer(
+                    grid_text, parse_mode="HTML",
+                    reply_markup=question_grid_kb(attempt_id, question_ids, answered_ids),
+                )
+            return
+
+        # Standard Mode: Return to grid
         text = (
             f"✅ <b>{selected_label})</b> javob saqlandi!\n\n"
             f"📝 <b>Savollar ro'yxati</b>\n\n"
             f"Savolni tanlang va javob bering."
         )
-        # If the answered message was a photo, delete it and send new grid
         if call.message.photo:
             try:
                 await call.message.delete()
@@ -342,7 +472,7 @@ async def cb_answer(call: CallbackQuery, state: FSMContext):
         await call.message.answer(f"⚠️ Xato: {e}. /start — qayta boshlash.")
         await state.clear()
 
-    await call.answer(f"✅ {selected_label}) saqlandi")
+    await call.answer()
 
 
 # ── Finish test from grid ───────────────────────────────────
@@ -419,3 +549,118 @@ def _extract_question(q) -> dict:
         "text": q.text,
         "options": [{"label": o.label, "text": o.text} for o in q.options],
     }
+
+
+# ── Written Answer Handler ──────────────────────────────────
+@router.message(StudentSG.waiting_written, F.text)
+async def student_written_answer(message: Message, state: FSMContext):
+    """Handle text answer in Written mode."""
+    typed_answer = message.text.strip()
+    
+    data = await state.get_data()
+    attempt_id = data["attempt_id"]
+    question_ids = data["question_ids"]
+    answered_ids = set(data.get("answered_ids", []))
+    
+    question_id = data.get("current_question_id")
+    if not question_id:
+        await message.answer("⚠️ Xatolik yuz berdi. Iltimos, /start buyrug'ini bosing.")
+        await state.clear()
+        return
+
+    try:
+        async with async_session() as session:
+            # Check if time expired
+            attempt = await get_attempt_by_id(session, attempt_id)
+            if attempt and attempt.deadline_at:
+                remaining = time_remaining(attempt.deadline_at)
+                if remaining is not None and remaining <= 0:
+                    finished = await finish_attempt(session, attempt_id, expired=True)
+                    await state.clear()
+                    await message.answer(
+                        "⏱️ <b>Vaqt tugadi!</b>\n\n" +
+                        format_result(
+                            finished.score or 0,
+                            finished.max_score or 0,
+                            float(finished.percent or 0),
+                        ),
+                        parse_mode="HTML",
+                        reply_markup=finish_result_kb(attempt_id),
+                    )
+                    return
+
+            q = await get_question_with_options(session, question_id)
+            if not q:
+                await message.answer("Savol topilmadi.")
+                return
+
+            # Find the correct option and any wrong option
+            correct_opt = None
+            wrong_opt = None
+            for opt in q.options:
+                if opt.is_correct:
+                    correct_opt = opt
+                else:
+                    wrong_opt = opt
+
+            if not correct_opt:
+                correct_label = "A"
+                correct_text = ""
+            else:
+                correct_label = correct_opt.label
+                correct_text = correct_opt.text.strip()
+
+            # Compare typed answer case-insensitively with both label (e.g. A) and option text
+            is_correct = (
+                typed_answer.lower() == correct_label.lower() or
+                typed_answer.lower() == correct_text.lower()
+            )
+
+            # Assign matching label
+            if is_correct:
+                selected_label = correct_label
+            else:
+                selected_label = "B" if correct_label == "A" else "A"
+                if wrong_opt:
+                    selected_label = wrong_opt.label
+
+            # Save answer with selected_text set
+            stmt = select(Answer).where(
+                Answer.attempt_id == attempt_id,
+                Answer.question_id == question_id,
+            )
+            result = await session.execute(stmt)
+            existing = result.scalar_one_or_none()
+            if existing:
+                existing.selected_label = selected_label
+                existing.selected_text = typed_answer
+            else:
+                answer = Answer(
+                    attempt_id=attempt_id,
+                    question_id=question_id,
+                    selected_label=selected_label,
+                    selected_text=typed_answer,
+                )
+                session.add(answer)
+            await session.commit()
+
+        # Mark question as answered
+        answered_ids.add(question_id)
+        await state.update_data(answered_ids=list(answered_ids))
+        await state.set_state(StudentSG.in_quiz)
+
+        # Show confirmation and return to grid
+        text = (
+            f"✅ Javobingiz saqlandi!\n\n"
+            f"📝 <b>Savollar ro'yxati</b>\n\n"
+            f"Savolni tanlang va javob bering."
+        )
+        await message.answer(
+            text, parse_mode="HTML",
+            reply_markup=question_grid_kb(attempt_id, question_ids, answered_ids),
+        )
+
+    except Exception as e:
+        logger.exception("Written answer handler error: %s", e)
+        await message.answer(f"⚠️ Xato: {e}. /start — qayta boshlash.")
+        await state.clear()

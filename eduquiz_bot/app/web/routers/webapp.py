@@ -459,7 +459,7 @@ async def generate_ai_quiz(
                     "responseMimeType": "application/json"
                 }
             }
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={settings.GEMINI_API_KEY}"
 
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30.0)) as client:
                 async with client.post(url, headers=headers, json=payload) as response:

@@ -134,6 +134,7 @@ class Test(Base):
     )
     time_limit_minutes: Mapped[int | None] = mapped_column(Integer)
     attempt_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    test_type: Mapped[str] = mapped_column(String(16), nullable=False, default="standard")
     shuffle_questions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     shuffle_options: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -239,6 +240,7 @@ class Answer(Base):
         BigInt, ForeignKey("questions.id", ondelete="CASCADE"), index=True, nullable=False
     )
     selected_label: Mapped[str] = mapped_column(String(1), nullable=False)
+    selected_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

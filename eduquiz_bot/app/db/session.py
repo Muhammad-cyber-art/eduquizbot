@@ -29,6 +29,23 @@ async def init_db() -> None:
     import app.db.models  # noqa: F401 — ensure models are imported
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Check and add new columns if they do not exist (SQLite migration helper)
+        def migrate(sync_conn):
+            from sqlalchemy import text
+            # Check tests columns
+            res = sync_conn.execute(text("PRAGMA table_info(tests);"))
+            columns = [row[1] for row in res.fetchall()]
+            if "test_type" not in columns:
+                sync_conn.execute(text("ALTER TABLE tests ADD COLUMN test_type VARCHAR(16) DEFAULT 'standard' NOT NULL;"))
+                
+            # Check answers columns
+            res = sync_conn.execute(text("PRAGMA table_info(answers);"))
+            columns = [row[1] for row in res.fetchall()]
+            if "selected_text" not in columns:
+                sync_conn.execute(text("ALTER TABLE answers ADD COLUMN selected_text TEXT;"))
+                
+        await conn.run_sync(migrate)
 
 
 async def get_session() -> AsyncSession:  # type: ignore[misc]

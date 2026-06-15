@@ -35,3 +35,4 @@ class StudentSG(StatesGroup):
     enter_code = State()
     confirm_start = State()
     in_quiz = State()
+    waiting_written = State()

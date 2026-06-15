@@ -43,13 +43,29 @@ def test_settings_kb(test: Test) -> InlineKeyboardMarkup:
     time_text = f"⏱️ Vaqt: {test.time_limit_minutes} min" if test.time_limit_minutes else "⏱️ Vaqt: yo'q"
     shuf_q = f"🔀 Savollar: {'✅' if test.shuffle_questions else '❌'}"
     shuf_o = f"🔀 Variantlar: {'✅' if test.shuffle_options else '❌'}"
+    
+    # Map test type values to friendly text
+    type_map = {"standard": "Imtihon (Standard)", "practice": "Mashq (Instant)", "written": "Yozma (Open)"}
+    type_label = type_map.get(getattr(test, "test_type", "standard"), "Imtihon")
+    type_text = f"🏷️ Turi: {type_label}"
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=time_text, callback_data=f"tset_time_{test.id}")],
         [InlineKeyboardButton(text=f"🔢 Urinishlar: {test.attempt_limit}", callback_data=f"tset_attempts_{test.id}")],
+        [InlineKeyboardButton(text=type_text, callback_data=f"tset_type_{test.id}")],
         [InlineKeyboardButton(text=shuf_q, callback_data=f"tset_shuffleq_{test.id}")],
         [InlineKeyboardButton(text=shuf_o, callback_data=f"tset_shuffleo_{test.id}")],
         [InlineKeyboardButton(text="◀️ Orqaga", callback_data=f"tmanage_{test.id}")],
+    ])
+
+
+def test_type_kb(test_id: int) -> InlineKeyboardMarkup:
+    """Select quiz test type keyboard."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Imtihon (Standard)", callback_data=f"tset_settype_{test_id}_standard")],
+        [InlineKeyboardButton(text="🚀 Mashq (Instant)", callback_data=f"tset_settype_{test_id}_practice")],
+        [InlineKeyboardButton(text="✍️ Yozma (Open-ended)", callback_data=f"tset_settype_{test_id}_written")],
+        [InlineKeyboardButton(text="◀️ Orqaga", callback_data=f"tset_{test_id}")],
     ])
 
 

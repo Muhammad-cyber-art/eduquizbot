@@ -183,6 +183,8 @@ def _extract_pdf_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]:
             # Use fitz text blocks to find question number positions directly
             # get_text("dict") gives us lines with their bounding boxes
             q_positions: list[tuple[int, float]] = []  # (q_num, y0)
+            opt_a_positions: list[float] = []
+            opt_a_label_re = re.compile(r"^\s*A\s*[\.\)\:\-]", re.IGNORECASE)
 
             blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
             for block in blocks:
@@ -198,6 +200,8 @@ def _extract_pdf_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]:
                             if 1 <= q_num <= 200:
                                 bbox = span["bbox"]
                                 q_positions.append((q_num, bbox[1]))
+                        elif opt_a_label_re.match(span_text):
+                            opt_a_positions.append(span["bbox"][1])
 
             # Sort by Y position (top to bottom), then deduplicate
             q_positions.sort(key=lambda x: x[1])
@@ -258,10 +262,23 @@ def _extract_pdf_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]:
                 for i, (q_num, y0) in enumerate(q_positions):
                     crop_top = max(0, int(y0 * zoom) - 3)
 
+                    # Determine next boundary (next question start or page bottom)
                     if i + 1 < len(q_positions):
-                        crop_bottom = int(q_positions[i + 1][1] * zoom) - 3
+                        next_y = q_positions[i + 1][1]
                     else:
-                        crop_bottom = img_h
+                        next_y = img_h / zoom
+
+                    # Check if there is an Option A between current question start (y0) and next_y
+                    opt_a_y = None
+                    for y_opt in sorted(opt_a_positions):
+                        if y0 < y_opt < next_y:
+                            opt_a_y = y_opt
+                            break
+
+                    if opt_a_y is not None:
+                        crop_bottom = int(opt_a_y * zoom) - 5
+                    else:
+                        crop_bottom = int(next_y * zoom) - 3
 
                     crop_bottom = min(crop_bottom, img_h)
 
