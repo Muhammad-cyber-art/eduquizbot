@@ -129,6 +129,7 @@ async def cb_role(call: CallbackQuery, state: FSMContext):
                 role=UserRole.STUDENT,
                 lang_code=lang,
             )
+            await session.commit()
         # Set WebApp menu button for student
         await set_user_menu_button(call.message.bot, call.from_user.id, UserRole.STUDENT)
         await state.set_state(StudentSG.enter_code)

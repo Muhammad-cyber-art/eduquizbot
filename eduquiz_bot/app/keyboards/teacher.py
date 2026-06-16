@@ -12,6 +12,7 @@ def teacher_panel_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="➕ Yangi test", callback_data="t_new")],
         [InlineKeyboardButton(text="📋 Testlarim", callback_data="t_list")],
         [InlineKeyboardButton(text="📊 Statistika", callback_data="t_stats")],
+        [InlineKeyboardButton(text="👤 Profilim", callback_data="t_profile")],
         [InlineKeyboardButton(text="📱 Mini App (Statistika & AI)", web_app=WebAppInfo(url=f"{settings.WEB_URL}/webapp/teacher"))],
     ])
 

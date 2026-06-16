@@ -1,1 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+
+# Env / secrets — NEVER commit these!
+.env
+.env.*
+!.env.example
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.db-bak
+*.db.bak
+*.db.backup
+
+# Backup files
+*.bak
+*.backup
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+
+# Logs
+*.log
+tunnel.log
+cf_out.log
+logs/
+
+# Scratch / temp
+scratch/
+eduquiz_bot/scratch/
+
+# Aider
 .aider*
+
+# Docker
+docker-compose.override.yml
+
+# IDE
+.vscode/
+.idea/

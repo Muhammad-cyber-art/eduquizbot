@@ -9,6 +9,7 @@ import UsersPage from './pages/admin/UsersPage'
 import AnalyticsPage from './pages/admin/AnalyticsPage'
 import TeacherWebApp from './pages/webapp/TeacherWebApp'
 import StudentWebApp from './pages/webapp/StudentWebApp'
+import StartWebApp from './pages/webapp/StartWebApp'
 
 function ProtectedRoute({ children }) {
   const token = localStorage.getItem('token')
@@ -33,6 +34,7 @@ export default function App() {
       </Route>
 
       {/* Telegram WebApp Dashboards */}
+      <Route path="/start" element={<StartWebApp />} />
       <Route path="/webapp/teacher" element={<TeacherWebApp />} />
       <Route path="/webapp/student" element={<StudentWebApp />} />
     </Routes>

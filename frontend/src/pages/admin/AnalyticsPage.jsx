@@ -21,17 +21,18 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const fetchAnalytics = useCallback(async () => {
+  const fetchAnalytics = useCallback(async (signal) => {
     setLoading(true)
     setError('')
     try {
       const [growthRes, activityRes] = await Promise.all([
-        analyticsAPI.userGrowth(days),
-        analyticsAPI.activity(days)
+        analyticsAPI.userGrowth(days, { signal }),
+        analyticsAPI.activity(days, { signal })
       ])
       setGrowthData(growthRes.data)
       setActivityData(activityRes.data)
     } catch (err) {
+      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return
       console.error(err)
       setError('Failed to fetch analytics data.')
     } finally {
@@ -40,8 +41,10 @@ export default function AnalyticsPage() {
   }, [days])
 
   useEffect(() => {
-    fetchAnalytics()
-  }, [days, fetchAnalytics])
+    const controller = new AbortController()
+    fetchAnalytics(controller.signal)
+    return () => controller.abort()
+  }, [fetchAnalytics])
 
   // Helper to format chart dates to simpler format
   const formatChartDate = (dateStr) => {
@@ -109,7 +112,7 @@ export default function AnalyticsPage() {
 
           <button 
             className="btn btn-ghost" 
-            onClick={fetchAnalytics}
+            onClick={() => fetchAnalytics()}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border)', padding: '10px 14px' }}
             id="refresh-analytics-btn"
           >

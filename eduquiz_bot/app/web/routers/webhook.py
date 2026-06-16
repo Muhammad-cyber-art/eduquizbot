@@ -10,13 +10,26 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 @router.post("")
-async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str = Header(None)):
+async def telegram_webhook(
+    request: Request,
+    x_telegram_bot_api_secret_token: str = Header(None),
+):
     """Handle incoming Telegram Webhook updates."""
-    # Security check (optional, set via bot.set_webhook(secret_token=...))
-    # We will use the bot token's first 32 chars as a simple secret token if needed
+    # Derive the expected secret — first 32 alphanumeric chars of the token
     expected_secret = settings.BOT_TOKEN.replace(":", "")[:32]
-    if x_telegram_bot_api_secret_token and x_telegram_bot_api_secret_token != expected_secret:
+
+    # In production (webhook mode), the secret header is MANDATORY
+    if settings.WEBHOOK_URL:
+        if not x_telegram_bot_api_secret_token:
+            logger.warning("Webhook request missing secret token header")
+            raise HTTPException(status_code=401, detail="Missing secret token")
+        if x_telegram_bot_api_secret_token != expected_secret:
+            logger.warning("Webhook request has invalid secret token")
+            raise HTTPException(status_code=401, detail="Invalid secret token")
+    elif x_telegram_bot_api_secret_token and x_telegram_bot_api_secret_token != expected_secret:
+        # In polling/dev mode — validate if header is present, but don't require it
         raise HTTPException(status_code=401, detail="Invalid secret token")
 
     bot: Bot = request.app.state.bot
@@ -26,13 +39,11 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
         logger.error("Bot or Dispatcher not initialized in FastAPI app state.")
         return {"status": "error", "detail": "Not initialized"}
 
-    # Validate and parse Update
     try:
         body = await request.body()
         update = Update.model_validate_json(body, context={"bot": bot})
-        # Feed the update to aiogram dispatcher
         await dp.feed_update(bot, update)
         return {"status": "ok"}
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to handle update")
         raise HTTPException(status_code=500, detail="Internal server error")

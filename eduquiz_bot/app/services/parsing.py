@@ -37,9 +37,32 @@ def parse_file(file_path: str | Path) -> list[ParsedQuestion]:
 
     questions = _parse_text(text)
 
-    # Map extracted images to questions by line-position
-    if images:
-        _assign_images(questions, text, images)
+    # Fallback: if no questions were parsed, but we have cropped question images,
+    # create dummy questions with placeholder options so we can present the cropped images.
+    if not questions and images:
+        valid_images = [img for img in images if img[0] > 0]
+        if not valid_images:
+            valid_images = images
+        
+        valid_images.sort(key=lambda x: x[0])
+        
+        for q_num, img_bytes in valid_images:
+            dummy_options = [
+                ParsedOption(label="A", text="—"),
+                ParsedOption(label="B", text="—"),
+                ParsedOption(label="C", text="—"),
+                ParsedOption(label="D", text="—"),
+            ]
+            q = ParsedQuestion(
+                text=f"{q_num}-savol",
+                options=dummy_options,
+                image_bytes=img_bytes
+            )
+            questions.append(q)
+    else:
+        # Map extracted images to questions by line-position
+        if images:
+            _assign_images(questions, text, images)
 
     # Count questions with images for debugging
     img_count = sum(1 for q in questions if q.image_bytes)
@@ -128,11 +151,17 @@ def _extract_docx_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]
 
 def _extract_pdf(path: Path) -> str:
     """Extract text only from PDF (used by answer key parsing)."""
-    from PyPDF2 import PdfReader
-
-    reader = PdfReader(str(path))
-    pages = [page.extract_text() or "" for page in reader.pages]
-    return "\n".join(pages)
+    try:
+        import fitz
+        doc = fitz.open(str(path))
+        text = "\n".join(page.get_text() or "" for page in doc)
+        doc.close()
+        return text
+    except Exception:
+        from PyPDF2 import PdfReader
+        reader = PdfReader(str(path))
+        pages = [page.extract_text() or "" for page in reader.pages]
+        return "\n".join(pages)
 
 
 def _extract_pdf_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]:
@@ -148,10 +177,28 @@ def _extract_pdf_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]:
     import logging
     _logger = logging.getLogger(__name__)
 
-    from PyPDF2 import PdfReader
+    pages_text = []
+    has_fitz = False
+    try:
+        import fitz
+        has_fitz = True
+    except ImportError:
+        pass
 
-    reader = PdfReader(str(path))
-    pages_text = [page.extract_text() or "" for page in reader.pages]
+    if has_fitz:
+        try:
+            pdf_doc = fitz.open(str(path))
+            pages_text = [page.get_text() or "" for page in pdf_doc]
+            pdf_doc.close()
+        except Exception as e:
+            _logger.warning("fitz text extraction failed: %s, falling back to PyPDF2", e)
+            has_fitz = False
+
+    if not pages_text:
+        from PyPDF2 import PdfReader
+        reader = PdfReader(str(path))
+        pages_text = [page.extract_text() or "" for page in reader.pages]
+
     text = "\n".join(pages_text)
 
     images: list[tuple[int, bytes]] = []
@@ -162,7 +209,7 @@ def _extract_pdf_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]:
         pdf_doc = fitz.open(str(path))
         _logger.info("Opened PDF with %d pages", len(pdf_doc))
         # Pattern to identify a question number at the start of a text span
-        q_num_re = re.compile(r"^(\d{1,3})\s*[\.):\-]")
+        q_num_re = re.compile(r"^(\d{1,3})\s*[\.\\):\-\u2013\u2014]")
 
         line_offset = 0
         expected_next = 1  # Track expected question number across pages
@@ -351,12 +398,45 @@ def _extract_pdf_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]:
 
 # ── Text parsing strategies ─────────────────────────────────
 
-_OPTION_RE = re.compile(r"^\s*([A-Ja-j])\s*[\.):\-]\s*(.+)$")
-_QUESTION_NUM_RE = re.compile(r"^\s*(\d{1,3})\s*[\.):\-]\s*(.+)$")
+_OPTION_RE = re.compile(r"^\s*([A-Ja-j\u0410-\u042f\u0430-\u044f])\s*[\.\\):\-\u2013\u2014]\s*(.+)$")
+_QUESTION_NUM_RE = re.compile(r"^\s*(\d{1,3})\s*[\.\\):\-\u2013\u2014]\s*(.+)$")
 _CORRECT_RE = re.compile(r"[✅✔✓\*]|\(correct\)|\(to'g'ri\)|\(тўғри\)", re.IGNORECASE)
 
 # Matches option markers anywhere in a line (not just at the start)
-_INLINE_OPT_MARKER_RE = re.compile(r"([A-Ja-j])\s*[\.):\-]")
+_INLINE_OPT_MARKER_RE = re.compile(r"(?:^|\s)([A-Ja-j\u0410-\u042f\u0430-\u044f])\s*[\.\\):\-\u2013\u2014]")
+
+
+def _normalize_options(options: list[ParsedOption]) -> list[ParsedOption]:
+    # Detect if Cyrillic alphabetical order (А, Б, В, Г...) is used
+    raw_labels = [opt.label.upper() for opt in options]
+    has_cyrillic_be_or_ghe = any(l in ("\u0411", "\u0413") for l in raw_labels)
+
+    normalized = []
+    for opt in options:
+        lbl = opt.label.upper()
+        # Map Cyrillic to Latin
+        if has_cyrillic_be_or_ghe:
+            # Cyrillic alphabetical order: А=A, Б=B, В=C, Г=D, Д=E
+            mapping = {
+                "\u0410": "A",
+                "\u0411": "B",
+                "\u0412": "C",
+                "\u0413": "D",
+                "\u0414": "E",
+            }
+            lbl = mapping.get(lbl, lbl)
+        else:
+            # Looks-like mapping: А=A, В=B, С=C, Д=D
+            mapping = {
+                "\u0410": "A",
+                "\u0412": "B",
+                "\u0421": "C",
+                "\u0414": "D",
+            }
+            lbl = mapping.get(lbl, lbl)
+        
+        normalized.append(ParsedOption(label=lbl, text=opt.text))
+    return normalized
 
 
 def _expand_inline_options(lines: list[str]) -> list[str]:
@@ -397,8 +477,8 @@ def _parse_text(text: str) -> list[ParsedQuestion]:
     t = text.replace("\r", "\n")
     t = re.sub(r"\n{3,}", "\n\n", t).strip()
 
-    # Strategy 1: Split by numbered list "1. ...", "1) ..."
-    parts = re.split(r"(?:^|\n)\s*\d{1,3}[\.\\)]\s+", t)
+    # Strategy 1: Split by numbered list "1. ...", "1) ...", "1: ...", "1- ..."
+    parts = re.split(r"(?:^|\n)\s*\d{1,3}[\.\\):\-\u2013\u2014]\s*", t)
 
     if len(parts) <= 1:
         # Fallback: split by double newline blocks
@@ -543,9 +623,20 @@ def _parse_block(block: str) -> ParsedQuestion | None:
     if not question_lines and not options:
         return None
 
+    # Normalize options (Cyrillic to Latin mapping)
+    normalized_options = _normalize_options(options)
+    
+    # If correct_label was parsed, normalize it too
+    if correct_label:
+        correct_label = correct_label.upper()
+        for orig_opt, norm_opt in zip(options, normalized_options):
+            if orig_opt.label.upper() == correct_label:
+                correct_label = norm_opt.label
+                break
+
     return ParsedQuestion(
         text="\n".join(question_lines).strip(),
-        options=options,
+        options=normalized_options,
         correct_label=correct_label,
     )
 
@@ -555,8 +646,8 @@ def split_questions(text: str) -> list[str]:
     t = text.replace("\r", "\n")
     t = re.sub(r"\n{3,}", "\n\n", t).strip()
 
-    # Numbered list: "1. ...", "1) ..."
-    parts = re.split(r"(?:^|\n)\s*(\d{1,3}[\.|\)])\s+", t)
+    # Numbered list: "1. ...", "1) ...", "1: ...", "1- ..."
+    parts = re.split(r"(?:^|\n)\s*(\d{1,3}[\.\\):\-\u2013\u2014])\s*", t)
     if len(parts) > 1:
         bodies = []
         for i in range(2, len(parts), 2):
@@ -571,7 +662,7 @@ def split_questions(text: str) -> list[str]:
 # ── Answer key parsing ──────────────────────────────────────
 
 _ANSWER_LINE_RE = re.compile(
-    r"^\s*(\d{1,3})\s*[\.\)\:\-]?\s*([A-Ja-j])\b", re.MULTILINE
+    r"^\s*(\d{1,3})\s*[\.\)\:\-]?\s*([A-Ja-j\u0410-\u042f\u0430-\u044f])\b", re.MULTILINE
 )
 
 
@@ -599,7 +690,16 @@ def _parse_answer_text(text: str) -> dict[int, str]:
     answers: dict[int, str] = {}
     for match in _ANSWER_LINE_RE.finditer(text):
         q_num = int(match.group(1))
-        label = match.group(2).upper()
+        label = match.group(2)
+        mapping = {
+            "\u0410": "A", "\u0430": "A",
+            "\u0411": "B", "\u0431": "B",
+            "\u0412": "C", "\u0432": "C",
+            "\u0413": "D", "\u0433": "D",
+            "\u0414": "E", "\u0434": "E",
+            "\u0421": "C", "\u0441": "C",
+        }
+        label = mapping.get(label, label).upper()
         answers[q_num] = label
     return answers
 

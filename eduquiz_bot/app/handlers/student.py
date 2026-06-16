@@ -85,6 +85,11 @@ async def student_enter_code(message: Message, state: FSMContext):
         has_attempt = (await session.execute(stmt_has_attempt)).scalar()
         
         if not has_attempt:
+            # Race Condition (Concurrency) himoyasi: O'qituvchi yozuvini bloklash (Pessimistic Locking)
+            await session.scalar(
+                select(User.id).where(User.id == teacher.id).with_for_update()
+            )
+            
             # Count current unique students for this teacher
             stmt_count = (
                 select(func.count(func.distinct(Attempt.student_id)))
@@ -116,6 +121,7 @@ async def student_enter_code(message: Message, state: FSMContext):
         q_count = len(test.questions)
         user_id = user.id
 
+        # Barcha mantiqiy tekshiruvlardan o'tilsa, foydalanuvchini va o'zgarishlarni bazaga saqlash
         await session.commit()
 
     await state.update_data(test_id=test_id, test_code=test_code, user_id=user_id)
@@ -246,8 +252,8 @@ async def cb_select_question(call: CallbackQuery, state: FSMContext):
             # Delete the old grid message to keep chat clean
             try:
                 await call.message.delete()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Xabarni o'chirishda xatolik yuz berdi: %s", e)
         else:
             await call.message.edit_text(
                 text, parse_mode="HTML",
@@ -327,6 +333,7 @@ async def cb_answer(call: CallbackQuery, state: FSMContext):
 
             # Save answer
             await save_answer(session, attempt_id, question_id, selected_label)
+            await session.commit()
 
             # Fetch test to check test_type
             test = await session.get(Test, attempt.test_id) if attempt else None

@@ -283,6 +283,28 @@ async def teacher_contact_login(message: Message, state: FSMContext):
             parse_mode="HTML"
         )
 
+        # Notify admin if ADMIN_CHAT_ID is configured
+        from app.config import settings
+        if settings.admin_chat_id:
+            tg_username = message.from_user.username
+            username_str = f"@{tg_username}" if tg_username else "username yo'q"
+            admin_text = (
+                "🔔 <b>Yangi o'qituvchi arizasi!</b>\n\n"
+                f"👤 Ism: <b>{req_name}</b>\n"
+                f"📱 Telefon: <code>{db_phone}</code>\n"
+                f"💬 Telegram: {username_str}\n"
+                f"🆔 TG ID: <code>{message.from_user.id}</code>\n\n"
+                "Admin paneldan arizani ko'rib chiqing va tasdiqlang."
+            )
+            try:
+                await message.bot.send_message(
+                    chat_id=settings.admin_chat_id,
+                    text=admin_text,
+                    parse_mode="HTML",
+                )
+            except Exception as notify_err:
+                logger.warning("Admin notify failed: %s", notify_err)
+
 
 
 
@@ -296,6 +318,64 @@ async def cb_panel(call: CallbackQuery):
     )
     await call.answer()
 
+
+# ── Profile ─────────────────────────────────────────────────
+@router.callback_query(F.data == "t_profile")
+async def cb_profile(call: CallbackQuery):
+    """Show teacher profile: subscription info, limits, test stats."""
+    async with async_session() as session:
+        user = await get_user_by_tg_id(session, call.from_user.id)
+        if not user or user.role != UserRole.TEACHER:
+            await call.answer("❌ Siz o'qituvchi emassiz.", show_alert=True)
+            return
+
+        # Count tests
+        stmt_tests = select(func.count(Test.id)).where(Test.teacher_id == user.id)
+        total_tests = (await session.execute(stmt_tests)).scalar() or 0
+
+        # Count unique students
+        stmt_students = (
+            select(func.count(func.distinct(Attempt.student_id)))
+            .join(Test, Attempt.test_id == Test.id)
+            .where(Test.teacher_id == user.id)
+        )
+        total_students = (await session.execute(stmt_students)).scalar() or 0
+
+    # Format expiry date
+    if user.expires_at:
+        now = datetime.now(timezone.utc)
+        if user.expires_at < now:
+            expiry_str = "⛔ Muddati tugagan"
+        else:
+            days_left = (user.expires_at - now).days
+            expiry_str = f"✅ {user.expires_at.strftime('%d.%m.%Y')} ({days_left} kun qoldi)"
+    else:
+        expiry_str = "♾️ Cheksiz"
+
+    status_icon = "✅ Faol" if user.is_active else "🚫 Bloklangan"
+
+    text = (
+        "👤 <b>Mening profilim</b>\n\n"
+        f"📛 Ism: <b>{user.full_name or '—'}</b>\n"
+        f"🆔 Telegram ID: <code>{user.tg_user_id}</code>\n"
+        f"📅 Ro'yxatdan o'tgan: {user.created_at.strftime('%d.%m.%Y')}\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "📊 <b>Statistika</b>\n"
+        f"📝 Yaratilgan testlar: <b>{total_tests}</b> / {user.max_tests}\n"
+        f"👨‍🎓 O'quvchilar: <b>{total_students}</b> / {user.max_students}\n"
+        f"🤖 AI so'rovlar: <b>{user.ai_queries_used}</b> / {user.ai_queries_limit}\n\n"
+        "━━━━━━━━━━━━━━━\n"
+        "🎫 <b>Obuna</b>\n"
+        f"Holat: {status_icon}\n"
+        f"Muddat: {expiry_str}\n"
+    )
+
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Panelga qaytish", callback_data="t_panel")]
+    ])
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=back_kb)
+    await call.answer()
 
 # ── New test: title ─────────────────────────────────────────
 @router.callback_query(F.data == "t_new")
@@ -316,6 +396,7 @@ async def cb_new_test(call: CallbackQuery, state: FSMContext):
             await call.answer()
             return
 
+        await session.scalar(select(User.id).where(User.id == user.id).with_for_update())
         stmt = select(func.count(Test.id)).where(Test.teacher_id == user.id)
         res = await session.execute(stmt)
         total_tests = res.scalar() or 0
@@ -348,6 +429,11 @@ async def teacher_upload(message: Message, state: FSMContext):
     ext = os.path.splitext(doc.file_name or "")[1].lower()
     if ext not in (".docx", ".pdf", ".txt"):
         await message.answer("⚠️ Faqat .docx, .pdf yoki .txt fayllar qabul qilinadi.")
+        return
+
+    # Security: limit file size to 10MB to prevent memory exhaustion
+    if doc.file_size and doc.file_size > 10 * 1024 * 1024:
+        await message.answer("⚠️ Fayl hajmi juda katta! Iltimos, 10MB dan kichik fayl yuboring.")
         return
 
     # Download file to memory buffer (avoids Windows temp file locking)
@@ -388,6 +474,14 @@ async def teacher_upload(message: Message, state: FSMContext):
             if not db_user:
                 await message.answer("Siz ro'yxatdan o'tmagansiz!")
                 return
+
+            await session.scalar(select(User.id).where(User.id == db_user.id).with_for_update())
+            stmt_count = select(func.count(Test.id)).where(Test.teacher_id == db_user.id)
+            total_tests = (await session.execute(stmt_count)).scalar() or 0
+            if total_tests >= db_user.max_tests:
+                await message.answer(f"⚠️ Test yaratish limiti tugadi. Limitingiz: {db_user.max_tests} ta test.")
+                return
+
             test = await create_test(session, db_user.id, title)
             for i, pq in enumerate(parsed, 1):
                 opts = []
@@ -413,6 +507,7 @@ async def teacher_upload(message: Message, state: FSMContext):
                         opts.append({"label": lbl, "text": "—", "is_correct": False})
                 opts.sort(key=lambda x: x["label"])
                 await add_question(session, test.id, i, pq.text, opts)
+            await session.commit()
 
         # Upload question images to Telegram and save file_ids
         bot: Bot = message.bot
@@ -438,6 +533,7 @@ async def teacher_upload(message: Message, state: FSMContext):
                             chat_id=message.chat.id, message_id=img_msg.message_id
                         )
                         await set_question_image(session, q.id, file_id)
+                        await session.commit()
                         logger.info("Question %d image uploaded: file_id=%s", q.id, file_id)
                     except Exception as e:
                         logger.warning("Failed to upload question %d image: %s", q.id, e)
@@ -542,6 +638,11 @@ async def teacher_upload_answers(message: Message, state: FSMContext):
         await message.answer("⚠️ .docx, .pdf, .txt yoki .xlsx fayl yuboring.")
         return
 
+    # Security: limit file size to 10MB
+    if doc.file_size and doc.file_size > 10 * 1024 * 1024:
+        await message.answer("⚠️ Fayl hajmi juda katta! Iltimos, 10MB dan kichik fayl yuboring.")
+        return
+
     # Download file
     bot: Bot = message.bot
     file_obj = await bot.get_file(doc.file_id)
@@ -591,6 +692,7 @@ async def teacher_upload_answers(message: Message, state: FSMContext):
         if i in answer_key:
             async with async_session() as session:
                 await set_correct_answer(session, q.id, answer_key[i])
+                await session.commit()
             matched += 1
 
     await message.answer(
@@ -717,6 +819,7 @@ async def cb_mark_answer(call: CallbackQuery, state: FSMContext):
     # Save the correct answer
     async with async_session() as session:
         await set_correct_answer(session, question_id, selected_label)
+        await session.commit()
 
     # Move to next question
     mark_index += 1
@@ -870,6 +973,7 @@ async def cb_time_no(call: CallbackQuery, state: FSMContext):
     test_id = int(call.data.rsplit("_", 1)[1])
     async with async_session() as session:
         await update_test_settings(session, test_id, time_limit_minutes=None)
+        await session.commit()
         test = await get_test_full(session, test_id)
     await state.clear()
     await call.message.edit_text(
@@ -892,6 +996,7 @@ async def teacher_time_input(message: Message, state: FSMContext):
 
     async with async_session() as session:
         await update_test_settings(session, test_id, time_limit_minutes=minutes)
+        await session.commit()
         test = await get_test_full(session, test_id)
 
     await state.clear()
@@ -1163,6 +1268,7 @@ async def cb_settings(call: CallbackQuery, state: FSMContext):
             if test:
                 new_val = not test.shuffle_questions
                 await update_test_settings(session, test_id, shuffle_questions=new_val)
+                await session.commit()
                 test = await get_test_full(session, test_id)
         if test:
             await call.message.edit_reply_markup(reply_markup=test_settings_kb(test))
@@ -1175,6 +1281,7 @@ async def cb_settings(call: CallbackQuery, state: FSMContext):
             if test:
                 new_val = not test.shuffle_options
                 await update_test_settings(session, test_id, shuffle_options=new_val)
+                await session.commit()
                 test = await get_test_full(session, test_id)
         if test:
             await call.message.edit_reply_markup(reply_markup=test_settings_kb(test))
@@ -1228,6 +1335,7 @@ async def cb_settings_input(message: Message, state: FSMContext):
         if field == "time":
             if text in ("0", "yo'q", "yoq", "no"):
                 await update_test_settings(session, test_id, time_limit_minutes=None)
+                await session.commit()
                 await message.answer("✅ Vaqt limiti olib tashlandi.")
             else:
                 try:
@@ -1235,6 +1343,7 @@ async def cb_settings_input(message: Message, state: FSMContext):
                     if minutes < 1:
                         raise ValueError
                     await update_test_settings(session, test_id, time_limit_minutes=minutes)
+                    await session.commit()
                     await message.answer(f"✅ Vaqt limiti: {minutes} daqiqa.")
                 except ValueError:
                     await message.answer("⚠️ Noto'g'ri qiymat. Raqam kiriting.")
@@ -1246,6 +1355,7 @@ async def cb_settings_input(message: Message, state: FSMContext):
                 if limit < 1 or limit > 10:
                     raise ValueError
                 await update_test_settings(session, test_id, attempt_limit=limit)
+                await session.commit()
                 await message.answer(f"✅ Urinishlar soni: {limit}.")
             except ValueError:
                 await message.answer("⚠️ 1 dan 10 gacha raqam kiriting.")

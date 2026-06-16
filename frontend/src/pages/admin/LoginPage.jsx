@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { authAPI } from '../../api'
 import { useLang } from '../../contexts/LangContext'
@@ -12,19 +12,35 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  const abortControllerRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!username.trim() || !password.trim()) return
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
 
     setLoading(true)
     setError('')
 
     try {
-      const response = await authAPI.login(username, password)
+      const response = await authAPI.login(username, password, { signal: abortControllerRef.current.signal })
       const token = response.data.access_token
       localStorage.setItem('token', token)
       navigate('/admin')
     } catch (err) {
+      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return
       console.error(err)
       setError(t('loginError'))
     } finally {

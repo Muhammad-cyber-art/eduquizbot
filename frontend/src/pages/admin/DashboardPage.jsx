@@ -19,13 +19,14 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const fetchStats = async () => {
+  const fetchStats = async (signal) => {
     setLoading(true)
     setError('')
     try {
-      const response = await analyticsAPI.dashboard()
+      const response = await analyticsAPI.dashboard({ signal })
       setStats(response.data)
     } catch (err) {
+      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return
       console.error(err)
       setError('Failed to fetch dashboard statistics.')
     } finally {
@@ -34,7 +35,9 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    fetchStats()
+    const controller = new AbortController()
+    fetchStats(controller.signal)
+    return () => controller.abort()
   }, [])
 
   if (loading) {
@@ -69,7 +72,7 @@ export default function DashboardPage() {
         </div>
         <button 
           className="btn btn-ghost" 
-          onClick={fetchStats}
+          onClick={() => fetchStats()}
           style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border)' }}
           id="refresh-stats-btn"
         >

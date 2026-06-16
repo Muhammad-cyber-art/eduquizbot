@@ -27,8 +27,7 @@ async def create_test(
         status=TestStatus.DRAFT,
     )
     session.add(test)
-    await session.commit()
-    await session.refresh(test)
+    await session.flush()
     return test
 
 
@@ -59,8 +58,7 @@ async def add_question(
                 is_correct=opt.get("is_correct", False),
             )
         )
-    await session.commit()
-    await session.refresh(q)
+    await session.flush()
     return q
 
 
@@ -98,8 +96,7 @@ async def set_test_status(
         test.opened_at = now
     elif status == TestStatus.CLOSED:
         test.closed_at = now
-    await session.commit()
-    await session.refresh(test)
+    await session.flush()
     return test
 
 
@@ -133,8 +130,7 @@ async def update_test_settings(
         test.shuffle_questions = shuffle_questions
     if shuffle_options is not None:
         test.shuffle_options = shuffle_options
-    await session.commit()
-    await session.refresh(test)
+    await session.flush()
     return test
 
 
@@ -149,7 +145,7 @@ async def set_correct_answer(
     options = result.scalars().all()
     for opt in options:
         opt.is_correct = (opt.label == correct_label)
-    await session.commit()
+    await session.flush()
 
 
 async def set_question_image(
@@ -163,7 +159,7 @@ async def set_question_image(
     q = result.scalar_one_or_none()
     if q:
         q.image_file_id = image_file_id
-        await session.commit()
+        await session.flush()
 
 
 async def get_question_with_options(

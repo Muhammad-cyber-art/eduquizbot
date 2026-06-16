@@ -29,8 +29,7 @@ async def create_attempt(
         status="in_progress",
     )
     session.add(attempt)
-    await session.commit()
-    await session.refresh(attempt)
+    await session.flush()
     return attempt
 
 
@@ -82,7 +81,7 @@ async def save_answer(
     existing = result.scalar_one_or_none()
     if existing:
         existing.selected_label = selected_label
-        await session.commit()
+        await session.flush()
         return existing
 
     answer = Answer(
@@ -91,7 +90,7 @@ async def save_answer(
         selected_label=selected_label,
     )
     session.add(answer)
-    await session.commit()
+    await session.flush()
     return answer
 
 
@@ -145,7 +144,7 @@ async def finish_attempt(
     multiplier = {"easy": 10, "medium": 15, "hard": 20}.get(getattr(test, "difficulty", "medium"), 15)
     attempt.xp_earned = score * multiplier
     
-    await session.commit()
+    await session.flush()
     # No refresh needed — expire_on_commit=False, all attrs already set
     return attempt
 

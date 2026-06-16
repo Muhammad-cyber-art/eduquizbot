@@ -75,7 +75,17 @@ async def main() -> None:
     except Exception as e:
         logger.error("Failed to set default menu button on startup: %s", e)
 
+    # FSM Storage: Redis if available, MemoryStorage as fallback
     storage = MemoryStorage()
+    try:
+        from aiogram.fsm.storage.redis import RedisStorage as AiogramRedisStorage
+        import redis.asyncio as aioredis
+        redis_client = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
+        await redis_client.ping()  # Test connection
+        storage = AiogramRedisStorage(redis=redis_client)
+        logger.info("FSM storage: Redis (%s)", settings.REDIS_URL)
+    except Exception as redis_err:
+        logger.warning("Redis unavailable (%s) — using MemoryStorage", redis_err)
     dp = Dispatcher(storage=storage)
 
     # Register routers (order matters: common first)

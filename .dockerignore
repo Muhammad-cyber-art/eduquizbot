@@ -1,9 +1,41 @@
-node_modules
-dist
-.env
-__pycache__
+# Python bytecode
+__pycache__/
 *.pyc
+*.pyo
+
+# Env files — never bake secrets into images
+*.env
+.env*
+!.env.example
+
+# Databases
+*.db
+*.db-shm
+*.db-wal
+*.db-bak
+*.db.bak
+*.db.backup
+
+# Git
 .git
 .gitignore
+
+# Node
+node_modules/
+frontend/dist/
+
+# Logs
+*.log
 tunnel.log
 cf_out.log
+
+# Scratch / temp
+scratch/
+eduquiz_bot/scratch/
+
+# Docs / SQL leftovers
+sql/
+eduquiz_bot/sql/
+
+# Aider
+.aider*

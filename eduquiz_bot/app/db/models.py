@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models — mirrors sql/schema.sql."""
+"""SQLAlchemy ORM models for EduQuiz Bot (PostgreSQL / SQLite)."""
 
 from __future__ import annotations
 
@@ -210,12 +210,12 @@ class Attempt(Base):
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     score: Mapped[int | None] = mapped_column(Integer)
     max_score: Mapped[int | None] = mapped_column(Integer)
     percent: Mapped[float | None] = mapped_column(Numeric(5, 2))
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="in_progress")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="in_progress", index=True)
     xp_earned: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # relationships

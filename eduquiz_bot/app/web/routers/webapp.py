@@ -29,32 +29,45 @@ from urllib.parse import parse_qsl
 from fastapi import Header
 
 async def get_tg_user_id(x_tg_init_data: str = Header(..., alias="X-TG-Init-Data")) -> int:
-    # Allow bypass for dev mode in frontend
+    # DEV bypass — only allowed in development mode
     if x_tg_init_data.startswith("DEV_"):
-        return int(x_tg_init_data.replace("DEV_", ""))
-        
+        if settings.is_production:
+            raise HTTPException(status_code=401, detail="DEV mode disabled in production")
+        try:
+            return int(x_tg_init_data.replace("DEV_", ""))
+        except ValueError:
+            raise HTTPException(status_code=401, detail="Invalid DEV user id")
+
     try:
         parsed_data = dict(parse_qsl(x_tg_init_data))
         if "hash" not in parsed_data:
             raise ValueError("No hash in init data")
-            
+
         hash_value = parsed_data.pop("hash")
         data_check_string = "\n".join(
             f"{k}={v}" for k, v in sorted(parsed_data.items())
         )
-        
+
         secret_key = hmac.new(b"WebAppData", settings.BOT_TOKEN.encode(), hashlib.sha256).digest()
         calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-        
+
         if calculated_hash != hash_value:
             raise ValueError("Invalid hash")
-            
+
+        # Reject stale init data (older than 24 hours)
+        if "auth_date" in parsed_data:
+            auth_ts = int(parsed_data["auth_date"])
+            age_seconds = int(datetime.now(timezone.utc).timestamp()) - auth_ts
+            if age_seconds > 86400:
+                raise ValueError(f"Init data expired ({age_seconds}s old)")
+
         if "user" in parsed_data:
-            import json
             user_data = json.loads(parsed_data["user"])
             return int(user_data["id"])
-            
+
         raise ValueError("No user id in init data")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Unauthorized: {e}")
 
@@ -74,6 +87,19 @@ class AIGenerateResponse(BaseModel):
     code: str
     questions_count: int
     difficulty: str
+
+
+@router.get("/user/role")
+async def get_user_role(
+    tg_user_id: int = Depends(get_tg_user_id),
+    session: AsyncSession = Depends(get_async_session),
+):
+    stmt = select(User).where(User.tg_user_id == tg_user_id)
+    res = await session.execute(stmt)
+    user = res.scalar_one_or_none()
+    if not user:
+        return {"role": None}
+    return {"role": user.role.value if hasattr(user.role, "value") else str(user.role)}
 
 
 # ── Teacher Stats Endpoint ──────────────────────────────────
@@ -110,7 +136,7 @@ async def get_teacher_stats(
     attempts = res_attempts.scalars().all()
 
     total_tests = len(tests)
-    finished_attempts = [a for a in attempts if a.status == "finished"]
+    finished_attempts = [a for a in attempts if a.status in ("finished", "expired")]
     total_attempts_count = len(finished_attempts)
 
     # Pass rate (percent >= 50%)
@@ -221,7 +247,7 @@ async def get_test_details(
 
     participants = []
     for a in test.attempts:
-        if a.status == "finished":
+        if a.status in ("finished", "expired"):
             participants.append({
                 "student_name": a.student.full_name if a.student and a.student.full_name else "Noma'lum",
                 "score": a.score,
@@ -298,7 +324,7 @@ async def get_student_stats(
     res_attempts = await session.execute(stmt_attempts)
     attempts = res_attempts.scalars().all()
 
-    finished_attempts = [a for a in attempts if a.status == "finished"]
+    finished_attempts = [a for a in attempts if a.status in ("finished", "expired")]
 
     # Calculate overall XP and stats
     total_xp = sum(a.xp_earned for a in finished_attempts)
@@ -319,7 +345,7 @@ async def get_student_stats(
             func.sum(Attempt.xp_earned).label("weekly_xp")
         )
         .join(Attempt, Attempt.student_id == User.id)
-        .where(Attempt.status == "finished", Attempt.finished_at >= monday)
+        .where(Attempt.status.in_(["finished", "expired"]), Attempt.finished_at >= monday)
         .group_by(User.id, User.full_name)
         .order_by(func.sum(Attempt.xp_earned).desc())
     )
@@ -345,7 +371,7 @@ async def get_student_stats(
             func.sum(Attempt.xp_earned).label("monthly_xp")
         )
         .join(Attempt, Attempt.student_id == User.id)
-        .where(Attempt.status == "finished", Attempt.finished_at >= first_day)
+        .where(Attempt.status.in_(["finished", "expired"]), Attempt.finished_at >= first_day)
         .group_by(User.id, User.full_name)
         .order_by(func.sum(Attempt.xp_earned).desc())
     )
@@ -374,6 +400,7 @@ async def get_student_stats(
             "max_score": a.max_score,
             "percent": float(a.percent or 0),
             "xp_earned": a.xp_earned,
+            "status": a.status,
             "date": a.finished_at.strftime("%Y-%m-%d %H:%M") if a.finished_at else ""
         })
 
@@ -411,8 +438,8 @@ async def generate_ai_quiz(
     tg_user_id: int = Depends(get_tg_user_id),
     session: AsyncSession = Depends(get_async_session),
 ):
-    # Find teacher
-    stmt = select(User).where(User.tg_user_id == tg_user_id, User.role == UserRole.TEACHER)
+    # Find teacher and lock row to prevent race conditions
+    stmt = select(User).where(User.tg_user_id == tg_user_id, User.role == UserRole.TEACHER).with_for_update()
     res = await session.execute(stmt)
     user = res.scalar_one_or_none()
     if not user:
@@ -424,6 +451,10 @@ async def generate_ai_quiz(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"AI limit tugadi. Sizning limitingiz: {user.ai_queries_limit} ta so'rov.",
         )
+
+    # Increment quota immediately to release lock and prevent race conditions
+    user.ai_queries_used += 1
+    await session.commit()
 
     # Try calling Gemini API
     quiz_data = None
@@ -585,8 +616,7 @@ async def generate_ai_quiz(
                 os.unlink(tmp_path)
             await bot.session.close()
 
-        # Increment AI usage quota
-        user.ai_queries_used += 1
+        # Successfully created test, commit the test details
         await session.commit()
 
         return AIGenerateResponse(
@@ -599,6 +629,16 @@ async def generate_ai_quiz(
 
     except Exception as e:
         await session.rollback()
+        # Refund the quota since creation failed
+        try:
+            stmt = select(User).where(User.id == user.id).with_for_update()
+            u_res = await session.execute(stmt)
+            locked_user = u_res.scalar_one()
+            locked_user.ai_queries_used = max(0, locked_user.ai_queries_used - 1)
+            await session.commit()
+        except Exception:
+            pass # Ignore refund errors to return the main error
+            
         logger.exception("Failed to write AI test to DB: %s", e)
         raise HTTPException(
             status_code=500,

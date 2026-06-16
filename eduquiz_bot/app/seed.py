@@ -29,9 +29,9 @@ async def seed() -> None:
             ]
             session.add_all(defaults)
             await session.commit()
-            print("✅ Seeded 2 default PINs: '1234' and 'TEACHER2024'")
+            print("Seeded 2 default PINs: '1234' and 'TEACHER2024'")
         else:
-            print(f"ℹ️  {count} invite code(s) already exist. Skipping seed.")
+            print(f"{count} invite code(s) already exist. Skipping seed.")
 
 
 if __name__ == "__main__":
