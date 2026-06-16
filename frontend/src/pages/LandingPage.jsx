@@ -25,18 +25,21 @@ export default function LandingPage() {
   const [scrolled, setScrolled] = useState(false)
   const [langMenuOpen, setLangMenuOpen] = useState(false)
 
-  // Listen to scroll events to toggle glassmorphism shadow
+  // Throttle scroll events to prevent CPU spikes
   useEffect(() => {
+    let ticking = false;
     const handleScroll = () => {
-      if (window.scrollY > 20) {
-        setScrolled(true)
-      } else {
-        setScrolled(false)
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          setScrolled(window.scrollY > 20);
+          ticking = false;
+        });
+        ticking = true;
       }
-    }
-    window.addEventListener('scroll', handleScroll)
-    return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   return (
     <div className="landing-layout">

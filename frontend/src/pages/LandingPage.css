@@ -285,10 +285,8 @@
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
-  background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
-  background-size: cover;
-  background-position: center;
-  opacity: 0.95;
+  background-color: #0e1621;
+  background-image: radial-gradient(circle at center, rgba(255,255,255,0.02) 0%, transparent 100%);
 }
 
 .msg {

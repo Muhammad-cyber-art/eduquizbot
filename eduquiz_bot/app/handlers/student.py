@@ -282,8 +282,8 @@ async def cb_back_to_grid(call: CallbackQuery, state: FSMContext):
     if call.message.photo:
         try:
             await call.message.delete()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to delete message: %s", e)
         await call.message.answer(
             text, parse_mode="HTML",
             reply_markup=question_grid_kb(attempt_id, question_ids, answered_ids),
@@ -426,8 +426,8 @@ async def cb_answer(call: CallbackQuery, state: FSMContext):
                         
                         try:
                             await call.message.delete()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning("Failed to delete message: %s", e)
                             
                         if next_q_data["image_file_id"]:
                             await call.message.answer_photo(
@@ -446,8 +446,8 @@ async def cb_answer(call: CallbackQuery, state: FSMContext):
                 grid_text = "📝 <b>Savollar ro'yxati</b>\n\nSavolni tanlang va javob bering."
                 try:
                     await call.message.delete()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Failed to delete message: %s", e)
                 await call.message.answer(
                     grid_text, parse_mode="HTML",
                     reply_markup=question_grid_kb(attempt_id, question_ids, answered_ids),
@@ -463,8 +463,8 @@ async def cb_answer(call: CallbackQuery, state: FSMContext):
         if call.message.photo:
             try:
                 await call.message.delete()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to delete photo message: %s", e)
             await call.message.answer(
                 text, parse_mode="HTML",
                 reply_markup=question_grid_kb(attempt_id, question_ids, answered_ids),

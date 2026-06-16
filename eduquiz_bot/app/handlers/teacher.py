@@ -7,6 +7,7 @@ import io
 import logging
 import os
 import tempfile
+import asyncio
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -274,6 +275,8 @@ async def teacher_contact_login(message: Message, state: FSMContext):
             tg_username=message.from_user.username,
             phone_number=db_phone,
         )
+        await session.commit()
+        await state.clear()
 
         await message.answer(
             "📩 <b>Kirish arizangiz qabul qilindi!</b>\n\n"
@@ -448,9 +451,9 @@ async def teacher_upload(message: Message, state: FSMContext):
     with open(tmp_path, "wb") as f:
         f.write(buf.read())
 
-    # Parse
+    # Parse in a background thread to prevent blocking the async event loop
     try:
-        parsed = parse_file(tmp_path)
+        parsed = await asyncio.to_thread(parse_file, tmp_path)
     except Exception as e:
         logger.exception("Parse failed: %s", e)
         os.unlink(tmp_path)
@@ -656,7 +659,7 @@ async def teacher_upload_answers(message: Message, state: FSMContext):
 
     # Parse answer key
     try:
-        answer_key = parse_answer_key(tmp_path)
+        answer_key = await asyncio.to_thread(parse_answer_key, tmp_path)
     except Exception as e:
         logger.exception("Answer parse failed: %s", e)
         os.unlink(tmp_path)
@@ -852,8 +855,8 @@ async def cb_mark_answer(call: CallbackQuery, state: FSMContext):
         if call.message.photo:
             try:
                 await call.message.delete()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to delete photo message: %s", e)
             await call.message.answer(
                 preview, parse_mode="HTML", reply_markup=confirm_review_kb(test_id)
             )
@@ -892,8 +895,8 @@ async def cb_mark_answer(call: CallbackQuery, state: FSMContext):
     if call.message.photo:
         try:
             await call.message.delete()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to delete photo message: %s", e)
         if q_data["image_file_id"]:
             await call.message.answer_photo(
                 photo=q_data["image_file_id"],
@@ -911,8 +914,8 @@ async def cb_mark_answer(call: CallbackQuery, state: FSMContext):
         if q_data["image_file_id"]:
             try:
                 await call.message.delete()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to delete text message: %s", e)
             await call.message.answer_photo(
                 photo=q_data["image_file_id"],
                 caption=text,
@@ -1106,6 +1109,8 @@ async def cb_open_test(call: CallbackQuery):
     test_id = int(call.data.split("_", 1)[1])
     async with async_session() as session:
         test = await set_test_status(session, test_id, TestStatus.OPEN)
+        if test:
+            await session.commit()
     if not test:
         await call.answer("Test topilmadi", show_alert=True)
         return
@@ -1123,6 +1128,8 @@ async def cb_close_test(call: CallbackQuery):
     test_id = int(call.data.split("_", 1)[1])
     async with async_session() as session:
         test = await set_test_status(session, test_id, TestStatus.CLOSED)
+        if test:
+            await session.commit()
     if not test:
         await call.answer("Test topilmadi", show_alert=True)
         return
@@ -1315,8 +1322,8 @@ async def cb_settings(call: CallbackQuery, state: FSMContext):
                     parse_mode="HTML",
                     reply_markup=test_settings_kb(test),
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to edit settings message: %s", e)
         await call.answer("✅ Test turi o'zgardi")
         return
 

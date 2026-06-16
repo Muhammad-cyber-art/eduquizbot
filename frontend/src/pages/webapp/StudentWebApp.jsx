@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
+import { useTelegram } from '../../hooks/useTelegram';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts';
@@ -22,7 +23,7 @@ const getDifficultyColor = (diff) => {
 
 // --- Sub-Components ---
 // 1. Dashboard Tab
-const DashboardTab = ({ stats }) => {
+const DashboardTab = React.memo(({ stats }) => {
   const safeTrends = useMemo(() => {
     return Array.isArray(stats?.progress_trends) 
       ? stats.progress_trends.filter(item => item && typeof item === 'object') 
@@ -86,10 +87,10 @@ const DashboardTab = ({ stats }) => {
       )}
     </div>
   );
-};
+});
 
 // 2. Leaderboard Tab
-const LeaderboardTab = ({ stats }) => {
+const LeaderboardTab = React.memo(({ stats }) => {
   const [leaderboardTab, setLeaderboardTab] = useState('weekly');
 
   const currentLeaderboard = useMemo(() => {
@@ -139,10 +140,10 @@ const LeaderboardTab = ({ stats }) => {
       </div>
     </div>
   );
-};
+});
 
 // 3. History Tab
-const HistoryTab = ({ stats }) => {
+const HistoryTab = React.memo(({ stats }) => {
   const safeAttempts = useMemo(() => {
     return Array.isArray(stats?.attempts) ? stats.attempts : [];
   }, [stats?.attempts]);
@@ -194,22 +195,26 @@ const HistoryTab = ({ stats }) => {
       )}
     </div>
   );
-};
+});
 
 // --- Main Application Component ---
 export default function StudentWebApp() {
+  const { tg, user, initData } = useTelegram();
+
   const [tgUserId, setTgUserId] = useState(() => {
-    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-    if (tgUser?.id) return String(tgUser.id);
-    
-    // XAVFSIZLIK: Dev ID faqatgina qat'iy DEV muhitda olinadi
+    // DEV check
     if (import.meta.env.DEV) {
        return localStorage.getItem('dev_student_tg_id') || '8935558785';
     }
     return '';
   });
 
-  const [devMode, setDevMode] = useState(!window.Telegram?.WebApp?.initDataUnsafe?.user?.id && import.meta.env.DEV);
+  // Sync user ID once Telegram is ready
+  useEffect(() => {
+    if (user?.id) setTgUserId(String(user.id));
+  }, [user]);
+
+  const [devMode, setDevMode] = useState(import.meta.env.DEV);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -241,10 +246,10 @@ export default function StudentWebApp() {
     
     try {
       // XAVFSIZLIK: Productionda hech qachon DEV token jo'natilmaydi
-      const initData = window.Telegram?.WebApp?.initData || (import.meta.env.DEV ? `DEV_${userId}` : '');
+      const actualInitData = initData || (import.meta.env.DEV ? `DEV_${userId}` : '');
       
       const res = await axios.get(`${API_BASE_URL}/student/stats`, {
-        headers: { 'X-TG-Init-Data': initData },
+        headers: { 'X-TG-Init-Data': actualInitData },
         params: { t: Date.now() },
         signal: signal // Race Condition ni oldini olish uchun
       });
@@ -257,13 +262,16 @@ export default function StudentWebApp() {
     } catch (err) {
       if (axios.isCancel(err)) return; // Bekor qilingan so'rovlarni e'tiborsiz qoldirish
       console.error('Fetch Stats Error:', err);
-      setError(err.response?.data?.detail || 'Natijalar yuklashda xatolik yuz berdi. Iltimos qayta urinib ko'ring.');
+      setError(err.response?.data?.detail || "Natijalar yuklashda xatolik yuz berdi. Iltimos qayta urinib ko'ring.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initData]);
 
   useEffect(() => {
+    // Wait for initData in production before fetching
+    if (!initData && !import.meta.env.DEV) return;
+    
     // AbortController yordamida Race Condition ni to'xtatish
     const controller = new AbortController();
     fetchStats(tgUserId, controller.signal);
@@ -271,7 +279,7 @@ export default function StudentWebApp() {
     return () => {
       controller.abort();
     };
-  }, [tgUserId, fetchStats]);
+  }, [tgUserId, fetchStats, initData]);
 
   if (error) {
     return (

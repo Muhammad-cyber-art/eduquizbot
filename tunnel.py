@@ -6,7 +6,7 @@ def main():
     while True:
         print("Starting localtunnel...")
         process = subprocess.Popen(
-            ["npx", "localtunnel", "--port", "5173"],
+            ["npx", "localtunnel", "--port", "80"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

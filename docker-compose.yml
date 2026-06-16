@@ -21,10 +21,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD:-secure_redis_pass}
     expose:
       - "6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-secure_redis_pass}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -43,8 +44,8 @@ services:
     env_file:
       - eduquiz_bot/.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-eduquiz}:${POSTGRES_PASSWORD:-eduquiz_pass}@db:5432/${POSTGRES_DB:-eduquiz}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-eduquiz}:${POSTGRES_PASSWORD:?Required}@db:5432/${POSTGRES_DB:-eduquiz}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-secure_redis_pass}@redis:6379/0
       APP_ENV: production
     # Port NOT exposed directly — Nginx proxies /api/* to backend
     expose:
@@ -65,7 +66,6 @@ services:
     restart: always
     ports:
       - "80:80"
-      - "443:443"
     depends_on:
       backend:
         condition: service_healthy

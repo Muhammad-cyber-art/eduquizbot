@@ -23,14 +23,23 @@ export default function AdminLayout() {
     // Verify admin token and load profile details
     authAPI.me()
       .then(res => {
-        if (res.data && res.data.username) {
-          setAdminUser(res.data.username)
+        if (res.data) {
+          // STRICT RBAC CHECK: Protect Admin Panel from unauthorized roles (Teachers, Students)
+          if (res.data.role !== 'admin') {
+            console.error('RBAC Violation: Unauthorized role attempted to access Admin Panel');
+            localStorage.removeItem('token')
+            navigate('/admin/login', { replace: true })
+            return
+          }
+          if (res.data.username) {
+            setAdminUser(res.data.username)
+          }
         }
       })
       .catch(() => {
-        // Interceptor in api.js handles 401 auto-redirect
+        // Interceptor in api.js handles 401/403 auto-redirect via custom events
       })
-  }, [])
+  }, [navigate])
 
   const handleLogout = () => {
     localStorage.removeItem('token')

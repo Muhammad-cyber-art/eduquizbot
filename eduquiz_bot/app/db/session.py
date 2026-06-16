@@ -8,7 +8,7 @@ _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
-    **({} if _is_sqlite else {"pool_size": 10, "max_overflow": 20}),
+    **({} if _is_sqlite else {"pool_size": 50, "max_overflow": 100, "pool_timeout": 60}),
 )
 
 # Optimize SQLite performance for concurrent writes/reads

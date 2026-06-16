@@ -1,6 +1,10 @@
 """Application configuration via environment variables."""
 
+import logging
+from pydantic import field_validator, ValidationInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -40,12 +44,20 @@ class Settings(BaseSettings):
     # Leave empty to disable notifications
     ADMIN_CHAT_ID: str = ""  # stored as str; converted to int in property below
 
+    @field_validator("BOT_TOKEN", "ADMIN_PASSWORD", "JWT_SECRET", mode="after")
+    @classmethod
+    def check_not_empty(cls, v: str, info: ValidationInfo) -> str:
+        if not v or not v.strip():
+            raise ValueError(f"{info.field_name} must not be empty or blank")
+        return v
+
     @property
     def admin_chat_id(self) -> int | None:
         """Return ADMIN_CHAT_ID as int, or None if not set."""
         try:
             return int(self.ADMIN_CHAT_ID) if self.ADMIN_CHAT_ID.strip() else None
-        except (ValueError, TypeError):
+        except ValueError as e:
+            logger.error("Invalid ADMIN_CHAT_ID format in config: %s", e)
             return None
 
     @property

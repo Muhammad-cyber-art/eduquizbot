@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/admin/LoginPage'
@@ -17,8 +17,44 @@ function ProtectedRoute({ children }) {
 }
 
 export default function App() {
+  const navigate = useNavigate()
+  const [errorToast, setErrorToast] = useState(null)
+
+  useEffect(() => {
+    // 1. Listen for unauthorized events to securely logout and redirect
+    const handleAuthError = () => {
+      localStorage.removeItem('token')
+      navigate('/admin/login', { replace: true })
+    }
+
+    // 2. Listen for generic API errors to show global notifications
+    const handleApiError = (event) => {
+      setErrorToast(event.detail || 'Noma\'lum server xatosi!')
+      setTimeout(() => setErrorToast(null), 5000)
+    }
+
+    window.addEventListener('auth-unauthorized', handleAuthError)
+    window.addEventListener('api-error', handleApiError)
+
+    return () => {
+      window.removeEventListener('auth-unauthorized', handleAuthError)
+      window.removeEventListener('api-error', handleApiError)
+    }
+  }, [navigate])
+
   return (
-    <Routes>
+    <>
+      {errorToast && (
+        <div style={{
+          position: 'fixed', top: '20px', right: '20px', zIndex: 9999,
+          background: '#ef4444', color: '#fff', padding: '12px 20px',
+          borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          fontSize: '14px', fontWeight: 'bold', animation: 'slide-down 0.3s ease-out'
+        }}>
+          {errorToast}
+        </div>
+      )}
+      <Routes>
       {/* Public landing */}
       <Route path="/" element={<LandingPage />} />
 
@@ -38,6 +74,7 @@ export default function App() {
       <Route path="/webapp/teacher" element={<TeacherWebApp />} />
       <Route path="/webapp/student" element={<StudentWebApp />} />
     </Routes>
+    </>
   )
 }
 

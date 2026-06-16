@@ -41,6 +41,7 @@ async def get_tg_user_id(x_tg_init_data: str = Header(..., alias="X-TG-Init-Data
     try:
         parsed_data = dict(parse_qsl(x_tg_init_data))
         if "hash" not in parsed_data:
+            logger.error(f"Init data missing hash. Raw data: {x_tg_init_data}")
             raise ValueError("No hash in init data")
 
         hash_value = parsed_data.pop("hash")
@@ -543,78 +544,24 @@ async def generate_ai_quiz(
         session.add(test)
         await session.flush()
 
-        import tempfile
-        import os
-        from docx import Document
-        from aiogram import Bot
-        from aiogram.types import BufferedInputFile
-        from app.services.parsing import parse_file
-
-        # Generate DOCX from AI output
-        doc = Document()
-        doc.add_heading(quiz_data.get("title", f"{req.topic} testi"), 0)
-
         for pos, q_item in enumerate(quiz_data.get("questions", []), 1):
-            doc.add_paragraph(f"{pos}. {q_item.get('text', '')}")
+            q = Question(
+                test_id=test.id,
+                position=pos,
+                text=q_item.get("text", f"{pos}-savol"),
+                image_file_id=None
+            )
+            session.add(q)
+            await session.flush()
+
             for opt_item in q_item.get("options", []):
-                doc.add_paragraph(f"{opt_item.get('label', 'A')}) {opt_item.get('text', '')}")
-            doc.add_paragraph()  # Empty line separator
-
-        fd, tmp_path = tempfile.mkstemp(suffix=".docx")
-        os.close(fd)
-        
-        bot = Bot(token=settings.BOT_TOKEN)
-        
-        try:
-            doc.save(tmp_path)
-            # Parse it to get cropped images
-            parsed_questions = parse_file(tmp_path)
-            
-            # Map images to questions
-            for pos, q_item in enumerate(quiz_data.get("questions", []), 1):
-                file_id = None
-                # Try to find corresponding parsed question (0-indexed)
-                pq_idx = pos - 1
-                if pq_idx < len(parsed_questions):
-                    pq = parsed_questions[pq_idx]
-                    if pq.image_bytes:
-                        try:
-                            # Send photo to teacher silently and delete immediately to just get file_id
-                            msg = await bot.send_photo(
-                                chat_id=tg_user_id,
-                                photo=BufferedInputFile(pq.image_bytes, filename=f"q{pos}.jpg"),
-                                disable_notification=True
-                            )
-                            file_id = msg.photo[-1].file_id
-                            try:
-                                await bot.delete_message(chat_id=tg_user_id, message_id=msg.message_id)
-                            except Exception:
-                                pass
-                        except Exception as e:
-                            logger.warning(f"Failed to upload image for question {pos}: {e}")
-
-                q = Question(
-                    test_id=test.id,
-                    position=pos,
-                    text=q_item.get("text", f"{pos}-savol"),
-                    image_file_id=file_id
+                opt = Option(
+                    question_id=q.id,
+                    label=opt_item.get("label", "A"),
+                    text=opt_item.get("text", "—"),
+                    is_correct=opt_item.get("is_correct", False),
                 )
-                session.add(q)
-                await session.flush()
-
-                for opt_item in q_item.get("options", []):
-                    opt = Option(
-                        question_id=q.id,
-                        label=opt_item.get("label", "A"),
-                        text=opt_item.get("text", "—"),
-                        is_correct=opt_item.get("is_correct", False),
-                    )
-                    session.add(opt)
-                    
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-            await bot.session.close()
+                session.add(opt)
 
         # Successfully created test, commit the test details
         await session.commit()
@@ -636,8 +583,8 @@ async def generate_ai_quiz(
             locked_user = u_res.scalar_one()
             locked_user.ai_queries_used = max(0, locked_user.ai_queries_used - 1)
             await session.commit()
-        except Exception:
-            pass # Ignore refund errors to return the main error
+        except Exception as refund_e:
+            logger.error(f"CRITICAL: Failed to refund AI quota for user {user.id}. Error: {refund_e}")
             
         logger.exception("Failed to write AI test to DB: %s", e)
         raise HTTPException(

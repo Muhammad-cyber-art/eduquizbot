@@ -1,4 +1,16 @@
-# Python
+# ==============================================================================
+# ENTERPRISE GITIGNORE FILE
+# ==============================================================================
+
+# 1. Environment Variables & Secrets (CRITICAL)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+
+# 2. Python / Backend
 __pycache__/
 *.py[cod]
 *.pyo
@@ -8,44 +20,83 @@ __pycache__/
 dist/
 build/
 *.so
+.pytest_cache/
+.coverage
+htmlcov/
+venv/
+env/
+.venv/
 
-# Env / secrets — NEVER commit these!
-.env
-.env.*
-!.env.example
+# 3. Node / Frontend
+node_modules/
+frontend/dist/
+frontend/build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
 
-# Database files
+# 4. Databases
 *.db
 *.db-shm
 *.db-wal
 *.db-bak
 *.db.bak
 *.db.backup
+*.sqlite
+*.sqlite3
 
-# Backup files
-*.bak
-*.backup
+# 5. OS & System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
 
-# Node / Frontend
-node_modules/
-frontend/dist/
+# 6. Executables & Binaries (SECURITY RISK)
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+*.class
+*.jar
+cloudflared.exe
 
-# Logs
+# 7. Logs & Dumps
 *.log
-tunnel.log
-cf_out.log
 logs/
+cf_out.log
+tunnel.log
+lt.log
+npm-debug.log
 
-# Scratch / temp
+# 8. Scratch / Temp / Media
 scratch/
 eduquiz_bot/scratch/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.pdf
+tree.txt
+*.tmp
+*.temp
 
-# Aider
-.aider*
-
-# Docker
-docker-compose.override.yml
-
-# IDE
+# 9. IDE / Editor Configurations
 .vscode/
 .idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+
+# 10. AI / Tools
+.aider*
+docker-compose.override.yml

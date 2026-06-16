@@ -126,4 +126,4 @@ async def login(request: Request, body: LoginRequest):
 @router.get("/auth/me")
 async def me(admin: Annotated[str, Depends(get_current_admin)]):
     """Get current admin info."""
-    return {"username": admin}
+    return {"username": admin, "role": "admin"}

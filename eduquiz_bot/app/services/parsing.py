@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -97,7 +98,7 @@ def _extract_docx_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]
         import tempfile
         from docx2pdf import convert
 
-        tmp_pdf = os.path.join(tempfile.gettempdir(), f"eduquiz_conv_{id(path)}.pdf")
+        tmp_pdf = os.path.join(tempfile.gettempdir(), f"eduquiz_conv_{uuid.uuid4().hex}.pdf")
         _logger.info("Converting DOCX to PDF: %s", path.name)
         convert(str(path), tmp_pdf)
 
@@ -384,8 +385,18 @@ def _extract_pdf_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]:
                         # Store (q_num, img_bytes) for direct index mapping
                         images.append((q_num, img_bytes))
             elif len(full_img_bytes) > 500:
-                # No question numbers found — use whole page image (with offset 0)
-                images.append((0, full_img_bytes))
+                # No question numbers found — compress and resize the whole page to avoid OOM Bomb
+                from PIL import Image
+                from io import BytesIO
+                full_img = Image.open(BytesIO(full_img_bytes))
+                if full_img.width > 800:
+                    ratio = 800 / full_img.width
+                    full_img = full_img.resize((800, int(full_img.height * ratio)), Image.LANCZOS)
+                if full_img.mode in ("RGBA", "P"):
+                    full_img = full_img.convert("RGB")
+                buf = BytesIO()
+                full_img.save(buf, format="JPEG", quality=75) # Much lower quality/size to save RAM
+                images.append((0, buf.getvalue()))
 
             line_offset += page_text.count("\n") + 1
 

@@ -18,6 +18,14 @@ RUN printf 'server {\n\
     listen [::]:80;\n\
     server_name _;\n\
 \n\
+    # Enable Gzip compression\n\
+    gzip on;\n\
+    gzip_vary on;\n\
+    gzip_min_length 1024;\n\
+    gzip_proxied expired no-cache no-store private auth;\n\
+    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml application/javascript;\n\
+    gzip_disable "MSIE [1-6]\.";\n\
+\n\
     # Security headers\n\
     add_header X-Content-Type-Options "nosniff" always;\n\
     add_header X-XSS-Protection "1; mode=block" always;\n\
@@ -33,6 +41,14 @@ RUN printf 'server {\n\
         root /usr/share/nginx/html;\n\
         index index.html index.htm;\n\
         try_files $uri $uri/ /index.html;\n\
+    }\n\
+\n\
+    # Don'\''t cache index.html\n\
+    location = /index.html {\n\
+        root /usr/share/nginx/html;\n\
+        add_header Cache-Control "no-cache, no-store, must-revalidate";\n\
+        add_header Pragma "no-cache";\n\
+        add_header Expires 0;\n\
     }\n\
 \n\
     # Proxy API requests to backend\n\

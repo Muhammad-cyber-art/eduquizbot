@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
+import { useTelegram } from '../../hooks/useTelegram';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts';
@@ -23,7 +24,7 @@ const getDifficultyColor = (diff) => {
 // --- Sub-Components ---
 
 // 1. Dashboard Tab
-const DashboardTab = ({ stats }) => {
+const DashboardTab = React.memo(({ stats }) => {
   const safeTests = useMemo(() => {
     return Array.isArray(stats?.tests) ? stats.tests : [];
   }, [stats?.tests]);
@@ -102,10 +103,10 @@ const DashboardTab = ({ stats }) => {
       </div>
     </div>
   );
-};
+});
 
 // 2. Tests Tab
-const TestsTab = ({ stats, onSelectTest }) => {
+const TestsTab = React.memo(({ stats, onSelectTest }) => {
   const [statusFilter, setStatusFilter] = useState('Barchasi');
 
   const safeTests = useMemo(() => {
@@ -174,10 +175,10 @@ const TestsTab = ({ stats, onSelectTest }) => {
       )}
     </div>
   );
-};
+});
 
 // 3. AI Generator Tab
-const AiGeneratorTab = ({ stats, tgUserId, fetchStats }) => {
+const AiGeneratorTab = React.memo(({ stats, tgUserId, fetchStats }) => {
   const [topic, setTopic] = useState('');
   const [numQuestions, setNumQuestions] = useState(10);
   const [difficulty, setDifficulty] = useState('medium');
@@ -195,14 +196,14 @@ const AiGeneratorTab = ({ stats, tgUserId, fetchStats }) => {
     setGenResult(null);
     
     try {
-      const initData = window.Telegram?.WebApp?.initData || (import.meta.env.DEV ? `DEV_${tgUserId}` : '');
+      const actualInitData = window.Telegram?.WebApp?.initData || (import.meta.env.DEV ? `DEV_${tgUserId}` : '');
       const res = await axios.post(`${API_BASE_URL}/ai/generate`, {
         topic: topic.trim(),
         num_questions: numQuestions,
         difficulty,
         option_count: optionCount
       }, {
-        headers: { 'X-TG-Init-Data': initData }
+        headers: { 'X-TG-Init-Data': actualInitData }
       });
       setGenResult(res.data);
       setTopic('');
@@ -276,10 +277,10 @@ const AiGeneratorTab = ({ stats, tgUserId, fetchStats }) => {
       </div>
     </div>
   );
-};
+});
 
 // --- Test Details Modal Component ---
-const TestDetailsModal = ({ testId, tgUserId, onClose, onUpdateStatus }) => {
+const TestDetailsModal = React.memo(({ testId, tgUserId, onClose, onUpdateStatus }) => {
   const [testDetails, setTestDetails] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -288,9 +289,9 @@ const TestDetailsModal = ({ testId, tgUserId, onClose, onUpdateStatus }) => {
     
     const fetchDetails = async () => {
       try {
-        const initData = window.Telegram?.WebApp?.initData || (import.meta.env.DEV ? `DEV_${tgUserId}` : '');
+        const actualInitData = window.Telegram?.WebApp?.initData || (import.meta.env.DEV ? `DEV_${tgUserId}` : '');
         const res = await axios.get(`${API_BASE_URL}/teacher/tests/${testId}`, {
-          headers: { 'X-TG-Init-Data': initData },
+          headers: { 'X-TG-Init-Data': actualInitData },
           params: { t: Date.now() },
           signal: controller.signal
         });
@@ -311,9 +312,9 @@ const TestDetailsModal = ({ testId, tgUserId, onClose, onUpdateStatus }) => {
   const handleStatusChange = async (e) => {
     const newStatus = e.target.value;
     try {
-      const initData = window.Telegram?.WebApp?.initData || (import.meta.env.DEV ? `DEV_${tgUserId}` : '');
+      const actualInitData = window.Telegram?.WebApp?.initData || (import.meta.env.DEV ? `DEV_${tgUserId}` : '');
       await axios.put(`${API_BASE_URL}/teacher/tests/${testId}/status`, { status: newStatus }, {
-        headers: { 'X-TG-Init-Data': initData }
+        headers: { 'X-TG-Init-Data': actualInitData }
       });
       setTestDetails(prev => ({ ...prev, status: newStatus }));
       onUpdateStatus(); // triggers background fetch
@@ -405,14 +406,13 @@ const TestDetailsModal = ({ testId, tgUserId, onClose, onUpdateStatus }) => {
       </div>
     </div>
   );
-};
+});
 
 // --- Main Application Component ---
 export default function TeacherWebApp() {
+  const { tg, user, initData } = useTelegram();
+
   const [tgUserId, setTgUserId] = useState(() => {
-    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-    if (tgUser?.id) return String(tgUser.id);
-    
     // DEV check
     if (import.meta.env.DEV) {
       return localStorage.getItem('dev_teacher_tg_id') || '1681742626';
@@ -420,7 +420,12 @@ export default function TeacherWebApp() {
     return '';
   });
   
-  const [devMode, setDevMode] = useState(!window.Telegram?.WebApp?.initDataUnsafe?.user?.id && import.meta.env.DEV);
+  // Sync user ID once Telegram is ready
+  useEffect(() => {
+    if (user?.id) setTgUserId(String(user.id));
+  }, [user]);
+
+  const [devMode, setDevMode] = useState(import.meta.env.DEV);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -441,9 +446,9 @@ export default function TeacherWebApp() {
     setError('');
     
     try {
-      const initData = window.Telegram?.WebApp?.initData || (import.meta.env.DEV ? `DEV_${userId}` : '');
+      const actualInitData = initData || (import.meta.env.DEV ? `DEV_${userId}` : '');
       const res = await axios.get(`${API_BASE_URL}/teacher/stats`, {
-        headers: { 'X-TG-Init-Data': initData },
+        headers: { 'X-TG-Init-Data': actualInitData },
         params: { t: Date.now() },
         signal: signal
       });
@@ -458,13 +463,14 @@ export default function TeacherWebApp() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initData]);
 
   useEffect(() => {
+    if (!initData && !import.meta.env.DEV) return;
     const controller = new AbortController();
     fetchStats(tgUserId, controller.signal);
     return () => controller.abort();
-  }, [tgUserId, fetchStats]);
+  }, [tgUserId, fetchStats, initData]);
 
   if (error) {
     return (
