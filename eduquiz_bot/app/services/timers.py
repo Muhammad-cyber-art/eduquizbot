@@ -30,8 +30,10 @@ async def check_expired_attempts() -> None:
         for att in expired:
             try:
                 await finish_attempt(session, att.id, expired=True)
+                await session.commit()
                 logger.info("Auto-expired attempt %s", att.id)
             except Exception:
+                await session.rollback()
                 logger.exception("Failed to expire attempt %s", att.id)
 
 

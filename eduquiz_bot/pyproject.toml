@@ -1,29 +1,42 @@
 [project]
 name = "eduquiz-bot"
-version = "0.2.0"
+version = "0.3.0"
 description = "EduQuiz — SaaS Telegram Bot + Web Dashboard for quiz platforms"
 requires-python = ">=3.11"
 dependencies = [
+    # ── Telegram Bot ──────────────────────────────────────────
     "aiogram>=3.4,<4",
+    "aiohttp-socks>=0.9,<1",   # SOCKS5 proxy support for aiogram
+
+    # ── Database (PostgreSQL ONLY) ────────────────────────────
+    # aiosqlite is intentionally NOT listed — SQLite is not supported.
     "sqlalchemy[asyncio]>=2.0,<3",
-    "aiosqlite>=0.20,<1",
-    "asyncpg>=0.29,<1",
-    "alembic>=1.13,<2",
+    "asyncpg>=0.29,<1",        # Async PostgreSQL driver
+    "alembic>=1.13,<2",        # Schema migration management
+
+    # ── Config & Validation ───────────────────────────────────
     "pydantic-settings>=2.1,<3",
+
+    # ── File Parsing (teacher uploads) ────────────────────────
     "python-docx>=1.1,<2",
     "PyPDF2>=3.0,<4",
-    "redis>=5.0,<6",
+    "PyMuPDF>=1.24,<2",        # PDF image extraction
+    "Pillow>=10.0,<12",        # Image processing
+
+    # ── Exports ───────────────────────────────────────────────
+    "openpyxl>=3.1,<4",        # Excel report generation
     "pyyaml>=6.0,<7",
-    "openpyxl>=3.1,<4",
-    "aiohttp-socks>=0.9,<1",
-    "PyMuPDF>=1.24,<2",
-    "Pillow>=10.0,<11",
-    # Web dashboard
+
+    # ── Redis ─────────────────────────────────────────────────
+    "redis>=5.0,<6",           # Async Redis client (for FSM storage)
+
+    # ── Web Dashboard (FastAPI) ───────────────────────────────
     "fastapi>=0.111,<1",
     "uvicorn[standard]>=0.29,<1",
     "python-jose[cryptography]>=3.3,<4",
     "passlib[bcrypt]>=1.7,<2",
     "python-multipart>=0.0.9",
+    "tenacity>=8.0,<10"
 ]
 
 [project.optional-dependencies]

@@ -1,27 +1,57 @@
-"""Authentication & user management service."""
+"""Authentication & user management service.
+
+All blocking CPU-bound operations (bcrypt) are run in a thread pool
+via asyncio.to_thread() to avoid blocking the async event loop.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timezone
+from functools import partial
 
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AccessRequest, TeacherInviteCode, User, UserRole
 
-# Hashing konfiguratsiyasi (bcrypt)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# ── Password hashing (bcrypt) ─────────────────────────────────
+# bcrypt is intentionally slow (~100ms per call).
+# ALL bcrypt calls MUST be run in asyncio.to_thread() to avoid
+# blocking the event loop and stalling the entire bot.
 
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+def _hash_password_sync(password: str) -> str:
+    """Blocking bcrypt hash — must be called via asyncio.to_thread()."""
+    salt = bcrypt.gensalt()
+    hashed_bytes = bcrypt.hashpw(password.encode("utf-8"), salt)
+    return hashed_bytes.decode("utf-8")
+
+
+def _verify_password_sync(plain: str, hashed: str) -> bool:
+    """Blocking bcrypt verify — must be called via asyncio.to_thread()."""
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+
+async def get_password_hash(password: str) -> str:
+    """Async-safe bcrypt hash (runs in thread pool)."""
+    return await asyncio.to_thread(_hash_password_sync, password)
+
+
+async def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Async-safe bcrypt verify (runs in thread pool)."""
+    return await asyncio.to_thread(_verify_password_sync, plain_password, hashed_password)
+
+
+# ── Phone normalisation ───────────────────────────────────────
 
 def normalize_phone(phone: str | None) -> str:
-    """Telefon raqamni qat'iy E.164 formatiga normalizatsiya qilish."""
+    """Normalize phone number to strict E.164 format (+998XXXXXXXXX)."""
     if not phone:
         return ""
     digits = re.sub(r"\D", "", str(phone))
@@ -31,6 +61,9 @@ def normalize_phone(phone: str | None) -> str:
         return f"+998{digits}"
     return f"+{digits}" if digits else ""
 
+
+# ── User queries ─────────────────────────────────────────────
+
 async def get_or_create_user(
     session: AsyncSession,
     tg_user_id: int,
@@ -38,11 +71,11 @@ async def get_or_create_user(
     role: UserRole,
     lang_code: str = "uz",
 ) -> User:
-    """Return existing user or create a new one. (No internal commits)"""
+    """Return existing user or create a new one. Does NOT commit."""
     stmt = select(User).where(User.tg_user_id == tg_user_id)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if user is None:
         user = User(
             tg_user_id=tg_user_id,
@@ -51,7 +84,7 @@ async def get_or_create_user(
             lang_code=lang_code,
         )
         session.add(user)
-        await session.flush() # Transaction yopilmaydi, faqat DB ga yoziladi
+        await session.flush()
     return user
 
 
@@ -60,6 +93,8 @@ async def get_user_by_tg_id(session: AsyncSession, tg_user_id: int) -> User | No
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
+
+# ── Invite code / Access request validation ───────────────────
 
 async def validate_teacher_pin(session: AsyncSession, code: str) -> TeacherInviteCode | None:
     """Check if invite code is valid, active, and not expired."""
@@ -77,22 +112,33 @@ async def validate_teacher_pin(session: AsyncSession, code: str) -> TeacherInvit
 
 
 async def validate_access_password(session: AsyncSession, password: str) -> AccessRequest | None:
-    """Check if password matches an approved access request using bcrypt verification."""
+    """Validate a teacher access password against approved requests.
+
+    Bcrypt verification is run in a thread pool to avoid blocking the event loop.
+    Only rows with status='approved' are checked (indexed column).
+    """
     stmt = select(AccessRequest).where(AccessRequest.status == "approved")
     result = await session.execute(stmt)
-    requests = result.scalars().all()
-    
-    # Hashed parollar bilan xavfsiz tekshirish
-    for req in requests:
-        if req.password and verify_password(password, req.password):
-            return req
+    requests_list = result.scalars().all()
+
+    # Iterate and verify — bcrypt is offloaded to thread pool
+    for req in requests_list:
+        if req.password:
+            is_valid = await verify_password(password, req.password)
+            if is_valid:
+                return req
     return None
 
 
-async def get_access_request_by_phone(session: AsyncSession, phone_number: str) -> AccessRequest | None:
-    """Find the latest access request by normalized phone number (Full Table Scan oldi olindi)."""
+async def get_access_request_by_phone(
+    session: AsyncSession, phone_number: str
+) -> AccessRequest | None:
+    """Find the latest access request by normalized phone number.
+
+    Uses the indexed phone_number column for fast lookup.
+    """
     clean_phone = normalize_phone(phone_number)
-    
+
     stmt = (
         select(AccessRequest)
         .where(AccessRequest.phone_number == clean_phone)
@@ -111,8 +157,8 @@ async def create_access_request(
     phone_number: str,
     password: str | None = None,
 ) -> AccessRequest:
-    """Create a new pending access request. (No internal commits)"""
-    hashed_pw = get_password_hash(password) if password else None
+    """Create a new pending access request. Does NOT commit."""
+    hashed_pw = await get_password_hash(password) if password else None
     req = AccessRequest(
         tg_user_id=tg_user_id,
         full_name=full_name,

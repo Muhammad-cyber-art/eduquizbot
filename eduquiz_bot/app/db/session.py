@@ -1,59 +1,85 @@
+"""PostgreSQL database session factory — asyncpg + SQLAlchemy 2.
+
+No SQLite. No create_all. Schema is managed exclusively by Alembic.
+
+Pool sizing (conservative for standard VPS, ~2GB RAM):
+  pool_size=5     : 5 persistent idle connections
+  max_overflow=10 : up to 10 extra connections on burst (total 15)
+  pool_timeout=30 : wait max 30s for a connection before raising PoolTimeout
+  pool_recycle=1800: recycle connections every 30 min (prevents stale conn errors)
+  pool_pre_ping=True: SELECT 1 before using a connection (detects dropped connections)
+"""
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy import event
 
 from app.config import settings
 
-_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
-
+# ── Engine ────────────────────────────────────────────────────────────────────
+# server_settings: override PostgreSQL connection parameters at the session level
+# prepared_statement_cache_size=0: disable asyncpg's PS cache (avoids issues with PgBouncer)
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
-    **({} if _is_sqlite else {"pool_size": 50, "max_overflow": 100, "pool_timeout": 60}),
+    # Connection pool
+    pool_size=5,
+    max_overflow=10,
+    pool_timeout=30,
+    pool_recycle=1800,
+    pool_pre_ping=True,
+    # asyncpg-specific: disable statement cache for PgBouncer compatibility
+    # and set application_name for pg_stat_activity visibility
+    connect_args={
+        "server_settings": {
+            "application_name": "eduquiz_bot",
+            "timezone": "UTC",
+        },
+        "prepared_statement_cache_size": 0,
+    },
 )
 
-# Optimize SQLite performance for concurrent writes/reads
-if _is_sqlite:
-    @event.listens_for(engine.sync_engine, "connect")
-    def set_sqlite_pragma(dbapi_connection, connection_record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.close()
-
+# ── Session factory ───────────────────────────────────────────────────────────
+# expire_on_commit=False: prevent lazy-load errors after commit in async contexts
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+# ── Database startup ──────────────────────────────────────────────────────────
+
 async def init_db() -> None:
-    """Create all tables. Works for both SQLite and PostgreSQL."""
-    from app.db.base import Base
-    import app.db.models  # noqa: F401 — ensure models are imported
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """Verify database connectivity at startup.
 
-        # SQLite-only: manual column migration (PostgreSQL uses Alembic or schema is fresh)
-        if _is_sqlite:
-            def migrate_sqlite(sync_conn):
-                from sqlalchemy import text
-                # Check tests columns
-                res = sync_conn.execute(text("PRAGMA table_info(tests);"))
-                columns = [row[1] for row in res.fetchall()]
-                if "test_type" not in columns:
-                    sync_conn.execute(text("ALTER TABLE tests ADD COLUMN test_type VARCHAR(16) DEFAULT 'standard' NOT NULL;"))
+    Schema management is handled exclusively by Alembic (run via entrypoint.sh).
+    This function only confirms the connection is live — it does NOT create tables.
+    """
+    from sqlalchemy import text
+    import asyncio
 
-                # Check answers columns
-                res = sync_conn.execute(text("PRAGMA table_info(answers);"))
-                columns = [row[1] for row in res.fetchall()]
-                if "selected_text" not in columns:
-                    sync_conn.execute(text("ALTER TABLE answers ADD COLUMN selected_text TEXT;"))
+    async def _ping():
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
 
-            await conn.run_sync(migrate_sqlite)
+    try:
+        await asyncio.wait_for(_ping(), timeout=10.0)
+    except asyncio.TimeoutError:
+        raise RuntimeError("Database connection timed out after 10 seconds.")
 
+
+# ── FastAPI / aiogram dependency ──────────────────────────────────────────────
 
 async def get_session() -> AsyncSession:  # type: ignore[misc]
-    """FastAPI-style dependency; also usable directly in handlers."""
+    """Async generator yielding a database session per request.
+
+    Automatically rolls back on unhandled exceptions and closes on exit.
+
+    Usage (FastAPI):
+        session: AsyncSession = Depends(get_async_session)
+    """
     async with async_session() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
 
 
-# Alias for FastAPI dependency injection
+# Alias used throughout the codebase as a FastAPI dependency
 get_async_session = get_session

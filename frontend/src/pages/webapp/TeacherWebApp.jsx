@@ -459,7 +459,9 @@ export default function TeacherWebApp() {
     } catch (err) {
       if (axios.isCancel(err)) return;
       console.error(err);
-      setError(err.response?.data?.detail || 'Statistikalarni yuklashda xatolik yuz berdi.');
+      const errDetail = err.response?.data?.detail || '';
+      const fallbackMsg = `Xatolik: ${err.message} (${err.name}). Nginx: 200 OK. Localtunnel/CORS issue?`;
+      setError(errDetail || fallbackMsg);
     } finally {
       setLoading(false);
     }

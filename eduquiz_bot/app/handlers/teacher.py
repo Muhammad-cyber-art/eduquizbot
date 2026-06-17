@@ -691,12 +691,13 @@ async def teacher_upload_answers(message: Message, state: FSMContext):
         return
 
     matched = 0
-    for i, q in enumerate(test_full.questions, 1):
-        if i in answer_key:
-            async with async_session() as session:
+    async with async_session() as session:
+        for i, q in enumerate(test_full.questions, 1):
+            if i in answer_key:
                 await set_correct_answer(session, q.id, answer_key[i])
-                await session.commit()
-            matched += 1
+                matched += 1
+        if matched:
+            await session.commit()
 
     await message.answer(
         f"✅ {matched}/{len(test_full.questions)} ta savolga javob moslandi!"

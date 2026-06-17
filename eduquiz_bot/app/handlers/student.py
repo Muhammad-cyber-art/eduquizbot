@@ -149,6 +149,8 @@ async def cb_start_test(call: CallbackQuery, state: FSMContext):
                 await call.answer()
                 return
 
+            await session.commit()
+            
             question_ids = [q.id for q in test.questions]
             attempt_id = attempt.id
             deadline = attempt.deadline_at
@@ -261,7 +263,7 @@ async def cb_select_question(call: CallbackQuery, state: FSMContext):
             )
     except Exception as e:
         logger.exception("Select question error: %s", e)
-        await call.answer(f"Xato: {e}", show_alert=True)
+        await call.answer(f"Xato yuz berdi", show_alert=True)
         return
 
     await call.answer()
@@ -317,6 +319,7 @@ async def cb_answer(call: CallbackQuery, state: FSMContext):
                 remaining = time_remaining(attempt.deadline_at)
                 if remaining is not None and remaining <= 0:
                     finished = await finish_attempt(session, attempt_id, expired=True)
+                    await session.commit()
                     await state.clear()
                     await call.message.edit_text(
                         "⏱️ <b>Vaqt tugadi!</b>\n\n" +
@@ -476,7 +479,7 @@ async def cb_answer(call: CallbackQuery, state: FSMContext):
             )
     except Exception as e:
         logger.exception("Answer error: %s", e)
-        await call.message.answer(f"⚠️ Xato: {e}. /start — qayta boshlash.")
+        await call.message.answer(f"⚠️ Xato yuz berdi. /start — qayta boshlash.")
         await state.clear()
 
     await call.answer()
@@ -496,6 +499,7 @@ async def cb_finish_test(call: CallbackQuery, state: FSMContext):
     try:
         async with async_session() as session:
             finished = await finish_attempt(session, attempt_id)
+            await session.commit()
 
         await state.clear()
         text = ""
@@ -512,7 +516,7 @@ async def cb_finish_test(call: CallbackQuery, state: FSMContext):
         )
     except Exception as e:
         logger.exception("Finish error: %s", e)
-        await call.message.answer(f"⚠️ Xato: {e}. /start — qayta boshlash.")
+        await call.message.answer(f"⚠️ Xato yuz berdi. /start — qayta boshlash.")
         await state.clear()
 
     await call.answer("🏁 Test yakunlandi!")
@@ -583,6 +587,7 @@ async def student_written_answer(message: Message, state: FSMContext):
                 remaining = time_remaining(attempt.deadline_at)
                 if remaining is not None and remaining <= 0:
                     finished = await finish_attempt(session, attempt_id, expired=True)
+                    await session.commit()
                     await state.clear()
                     await message.answer(
                         "⏱️ <b>Vaqt tugadi!</b>\n\n" +
@@ -669,5 +674,5 @@ async def student_written_answer(message: Message, state: FSMContext):
 
     except Exception as e:
         logger.exception("Written answer handler error: %s", e)
-        await message.answer(f"⚠️ Xato: {e}. /start — qayta boshlash.")
+        await message.answer(f"⚠️ Xato yuz berdi. /start — qayta boshlash.")
         await state.clear()

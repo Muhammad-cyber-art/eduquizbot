@@ -1,0 +1,16 @@
+[Unit]
+Description=EduQuiz Telegram Bot & WebApp Docker Compose Service
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/eduquiz/testbot
+# Start the containers
+ExecStart=/usr/bin/docker compose -f docker-compose.yml up -d
+# Stop the containers
+ExecStop=/usr/bin/docker compose -f docker-compose.yml down
+
+[Install]
+WantedBy=multi-user.target

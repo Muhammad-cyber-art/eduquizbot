@@ -85,42 +85,13 @@ def _extract_docx(path: Path) -> str:
 
 
 def _extract_docx_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]:
-    """Extract text and per-question cropped images from DOCX.
-
-    Converts DOCX to PDF (via docx2pdf/Word), then uses the same per-question
-    cropping logic as PDF. Falls back to inline image extraction if conversion
-    fails (e.g. Word not installed).
+    """Extract text and inline images from DOCX.
+    Uses pure python-docx to avoid system dependencies (like docx2pdf requiring MS Word).
     """
-    # Try DOCX -> PDF conversion for per-question cropping
     import logging
     _logger = logging.getLogger(__name__)
-    try:
-        import tempfile
-        from docx2pdf import convert
 
-        tmp_pdf = os.path.join(tempfile.gettempdir(), f"eduquiz_conv_{uuid.uuid4().hex}.pdf")
-        _logger.info("Converting DOCX to PDF: %s", path.name)
-        convert(str(path), tmp_pdf)
-
-        if os.path.exists(tmp_pdf):
-            try:
-                # Use PDF text AND images from the same source so offsets match
-                text, images = _extract_pdf_with_images(Path(tmp_pdf))
-                _logger.info("Extracted %d images from converted PDF", len(images))
-                return text, images
-            finally:
-                try:
-                    os.unlink(tmp_pdf)
-                except OSError:
-                    pass
-        else:
-            _logger.warning("DOCX->PDF conversion produced no output file")
-    except Exception as e:
-        _logger.warning("docx2pdf conversion failed: %s — falling back to inline extraction", e)
-
-    # Fallback: extract text and inline images from DOCX
     from docx import Document
-
     doc = Document(str(path))
     text = "\n".join(p.text for p in doc.paragraphs)
 
@@ -147,6 +118,7 @@ def _extract_docx_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]
                 if embed_id and embed_id in image_parts:
                     images.append((para_idx, image_parts[embed_id]))
 
+    _logger.info("Extracted %d inline images from DOCX", len(images))
     return text, images
 
 

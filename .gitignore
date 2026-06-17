@@ -3,9 +3,14 @@
 # ==============================================================================
 
 # 1. Environment Variables & Secrets (CRITICAL)
+# Global patterns
 .env
 .env.*
 !.env.example
+# Explicit subdirectory env files — must be listed separately
+eduquiz_bot/.env
+eduquiz_bot/.env.*
+!eduquiz_bot/.env.example
 *.pem
 *.key
 *.cert

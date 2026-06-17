@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AccessRequest
 from app.db.session import get_async_session
+from app.services.auth import get_password_hash
 from app.web.routers.auth import get_current_admin
 
 router = APIRouter()
@@ -90,15 +91,17 @@ async def approve_request(
         raise HTTPException(status_code=400, detail="Request is not pending")
     
     password = generate_password()
+    hashed = await get_password_hash(password)
     req.status = "approved"
-    req.password = password
+    req.password = hashed  # Store the bcrypt hash, NOT the plaintext
     req.max_tests = max_tests
     req.max_students = max_students
     req.ai_queries_limit = ai_queries_limit
     req.expires_at = expires_at
     req.reviewed_at = datetime.now(timezone.utc)
     await session.commit()
-    
+
+    # Return plaintext password ONCE to the admin — it is never stored in plaintext
     return ApproveResponse(id=req.id, password=password, status="approved")
 
 
