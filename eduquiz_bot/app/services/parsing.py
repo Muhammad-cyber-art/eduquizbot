@@ -204,7 +204,13 @@ def _extract_pdf_with_images(path: Path) -> tuple[str, list[tuple[int, bytes]]]:
             # get_text("dict") gives us lines with their bounding boxes
             q_positions: list[tuple[int, float]] = []  # (q_num, y0)
             opt_a_positions: list[float] = []
-            opt_a_label_re = re.compile(r"^\s*A\s*[\.\)\:\-]", re.IGNORECASE)
+            # Detect any option row: A), B), C), D), E) etc.
+            # Using [A-E] (not just A) catches cases where fitz merges spans
+            # or when options start with B/C on a continuation line.
+            opt_a_label_re = re.compile(
+                r"^\s*[A-Ea-e]\s*[\.\):\-\u2013\u2014]\s*\S",  # e.g. "A) 3" or "A. text"
+                re.IGNORECASE,
+            )
 
             blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
             for block in blocks:
@@ -386,7 +392,8 @@ _QUESTION_NUM_RE = re.compile(r"^\s*(\d{1,3})\s*[\.\\):\-\u2013\u2014]\s*(.+)$")
 _CORRECT_RE = re.compile(r"[✅✔✓\*]|\(correct\)|\(to'g'ri\)|\(тўғри\)", re.IGNORECASE)
 
 # Matches option markers anywhere in a line (not just at the start)
-_INLINE_OPT_MARKER_RE = re.compile(r"(?:^|\s)([A-Ja-j\u0410-\u042f\u0430-\u044f])\s*[\.\\):\-\u2013\u2014]")
+# Requires \S after delimiter to avoid false-positive on sub-items in question text
+_INLINE_OPT_MARKER_RE = re.compile(r"(?:^|\s)([A-Ja-j\u0410-\u042f\u0430-\u044f])\s*[\.\\):\-\u2013\u2014](?=\s*\S)")
 
 
 def _normalize_options(options: list[ParsedOption]) -> list[ParsedOption]:
@@ -399,22 +406,24 @@ def _normalize_options(options: list[ParsedOption]) -> list[ParsedOption]:
         lbl = opt.label.upper()
         # Map Cyrillic to Latin
         if has_cyrillic_be_or_ghe:
-            # Cyrillic alphabetical order: А=A, Б=B, В=C, Г=D, Д=E
+            # Cyrillic alphabetical order: А=A, Б=B, В=C, Г=D, Д=E, Е=F
             mapping = {
-                "\u0410": "A",
-                "\u0411": "B",
-                "\u0412": "C",
-                "\u0413": "D",
-                "\u0414": "E",
+                "\u0410": "A",  # А
+                "\u0411": "B",  # Б
+                "\u0412": "C",  # В
+                "\u0413": "D",  # Г
+                "\u0414": "E",  # Д
+                "\u0415": "F",  # Е (6th option)
             }
             lbl = mapping.get(lbl, lbl)
         else:
-            # Looks-like mapping: А=A, В=B, С=C, Д=D
+            # Looks-like Latin mapping: А=A, В=B, С=C, Д=D, Е=E
             mapping = {
-                "\u0410": "A",
-                "\u0412": "B",
-                "\u0421": "C",
-                "\u0414": "D",
+                "\u0410": "A",  # А looks like A
+                "\u0412": "B",  # В looks like B
+                "\u0421": "C",  # С looks like C
+                "\u0414": "D",  # Д looks like D
+                "\u0415": "E",  # Е looks like E
             }
             lbl = mapping.get(lbl, lbl)
         
@@ -461,7 +470,8 @@ def _parse_text(text: str) -> list[ParsedQuestion]:
     t = re.sub(r"\n{3,}", "\n\n", t).strip()
 
     # Strategy 1: Split by numbered list "1. ...", "1) ...", "1: ...", "1- ..."
-    parts = re.split(r"(?:^|\n)\s*\d{1,3}[\.\\):\-\u2013\u2014]\s*", t)
+    # \s* between number and delimiter handles PDF-extracted text like "46 )"
+    parts = re.split(r"(?:^|\n)\s*\d{1,3}\s*[\.\\):\-\u2013\u2014]\s*", t)
 
     if len(parts) <= 1:
         # Fallback: split by double newline blocks
@@ -472,8 +482,22 @@ def _parse_text(text: str) -> list[ParsedQuestion]:
     questions: list[ParsedQuestion] = []
     for block in blocks:
         q = _parse_block(block)
-        if q and q.options:
-            questions.append(q)
+        if not q:
+            continue
+        # CRITICAL: Never silently drop a question just because options failed to parse.
+        # Keep it with placeholder options — teacher can mark correct answers manually.
+        if not q.options:
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "Question parsed with no options (will use placeholders): %r", q.text[:60]
+            )
+            q.options = [
+                ParsedOption(label="A", text="—"),
+                ParsedOption(label="B", text="—"),
+                ParsedOption(label="C", text="—"),
+                ParsedOption(label="D", text="—"),
+            ]
+        questions.append(q)
     return questions
 
 
