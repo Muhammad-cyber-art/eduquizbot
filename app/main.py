@@ -70,6 +70,9 @@ async def main() -> None:
     dp.include_router(teacher_router)
     dp.include_router(student_router)
 
+    # Clear any previous webhook to prevent polling conflicts
+    await bot.delete_webhook(drop_pending_updates=True)
+
     # Start background tasks
     timer_task = asyncio.create_task(run_timer_loop(interval=30))
     web_task = asyncio.create_task(run_web_server())
