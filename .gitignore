@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+bot_error.txt
+.env.local
+node_modules/
+eduquiz_bot.egg-info/

@@ -1,0 +1,314 @@
+.desktop {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+/* ── macOS Window ── */
+.window {
+  width: 100%;
+  max-width: 1280px;
+  min-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* ── Title Bar ── */
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+.traffic-lights {
+  display: flex;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.tl {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.tl::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.traffic-lights:hover .tl::after {
+  opacity: 1;
+}
+
+.tl-red {
+  background: var(--traffic-red);
+  box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.12);
+}
+.tl-red::after {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3.5 3.5l5 5M8.5 3.5l-5 5' stroke='rgba(0,0,0,0.5)' stroke-width='1.2' fill='none'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+
+.tl-yellow {
+  background: var(--traffic-yellow);
+  box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.12);
+}
+.tl-yellow::after {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 6h6' stroke='rgba(0,0,0,0.5)' stroke-width='1.2' fill='none'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+
+.tl-green {
+  background: var(--traffic-green);
+  box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.12);
+}
+.tl-green::after {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' stroke='rgba(0,0,0,0.5)' stroke-width='1.2' fill='none'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+
+.tl:hover {
+  filter: brightness(1.1);
+  transform: scale(1.1);
+}
+
+.titlebar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.titlebar-icon {
+  color: var(--accent);
+  opacity: 0.8;
+}
+
+.titlebar-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-time {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.titlebar-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.titlebar-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+/* ── Window Body ── */
+.window-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Dock Sidebar ── */
+.dock {
+  width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+  gap: 4px;
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+
+.dock-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  width: 56px;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--text-secondary);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+  position: relative;
+}
+
+.dock-item:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dock-item.active {
+  color: var(--accent);
+}
+
+.dock-item.active .dock-icon {
+  background: rgba(10, 132, 255, 0.15);
+  box-shadow: 0 0 16px rgba(10, 132, 255, 0.2);
+}
+
+/* Active indicator dot */
+.dock-item.active::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+
+.dock-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dock-item:hover .dock-icon {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.08);
+}
+
+.dock-label {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.dock-separator {
+  width: 32px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 8px 0;
+}
+
+.dock-logout {
+  margin-top: auto;
+}
+
+.dock-logout:hover .dock-icon {
+  background: rgba(255, 69, 58, 0.15);
+  color: var(--danger);
+}
+
+.dock-logout:hover {
+  color: var(--danger);
+}
+
+/* ── Content Area ── */
+.content-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 32px;
+  min-width: 0;
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .desktop {
+    padding: 8px;
+  }
+
+  .window {
+    min-height: calc(100vh - 16px);
+  }
+
+  .dock {
+    width: 56px;
+  }
+
+  .dock-label {
+    display: none;
+  }
+
+  .content-area {
+    padding: 20px 16px;
+  }
+}
+
+@media (max-width: 600px) {
+  .dock {
+    flex-direction: row;
+    width: 100%;
+    height: 56px;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    overflow-x: auto;
+    padding: 0 8px;
+  }
+
+  .dock-separator {
+    width: 1px;
+    height: 32px;
+    margin: 0 4px;
+  }
+
+  .window-body {
+    flex-direction: column;
+  }
+
+  .dock-item {
+    width: 44px;
+    padding: 4px;
+  }
+
+  .dock-item.active::before {
+    left: 50%;
+    top: auto;
+    bottom: -2px;
+    transform: translateX(-50%);
+  }
+}
