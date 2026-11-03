@@ -28,3 +28,4 @@ USER appuser
 EXPOSE 7860
 
 CMD ["python", "-m", "app.main"]
+

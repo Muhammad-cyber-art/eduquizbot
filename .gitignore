@@ -3,6 +3,7 @@ __pycache__/
 *$py.class
 *.log
 bot_error.txt
+.env
 .env.local
 node_modules/
 eduquiz_bot.egg-info/
