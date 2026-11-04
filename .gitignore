@@ -6,6 +6,7 @@
 # Global patterns
 .env
 .env.*
+.env.local
 !.env.example
 # Explicit subdirectory env files — must be listed separately
 eduquiz_bot/.env
@@ -18,9 +19,11 @@ eduquiz_bot/.env.*
 # 2. Python / Backend
 __pycache__/
 *.py[cod]
+*$py.class
 *.pyo
 *.pyd
 *.egg-info/
+eduquiz_bot.egg-info/
 .eggs/
 dist/
 build/
@@ -78,6 +81,7 @@ cf_out.log
 tunnel.log
 lt.log
 npm-debug.log
+bot_error.txt
 
 # 8. Scratch / Temp / Media
 scratch/

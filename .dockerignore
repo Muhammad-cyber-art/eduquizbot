@@ -2,6 +2,11 @@
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
 
 # Env files — never bake secrets into images
 *.env
@@ -28,10 +33,12 @@ frontend/dist/
 *.log
 tunnel.log
 cf_out.log
+bot_error.txt
 
 # Scratch / temp
 scratch/
 eduquiz_bot/scratch/
+eduquiz_bot.egg-info/
 
 # Docs / SQL leftovers
 sql/
